@@ -3,7 +3,7 @@
 # Licensed under the MIT License (the License); you may not
 # use this file except in compliance with the License. You may obtain a copy
 # of the License at https://opensource.org/licenses/MIT#
-import sys, urlparse, argparse, socket, select, time, re, pprint, glob
+import sys, urlparse, argparse, socket, select, time, re, pprint, glob, logging
 
 MAX_ATTEMPT = 3
 WAIT_TIME = 1
@@ -21,6 +21,14 @@ SEMANTIC = 'SEMANTIC'
 
 DATA_LIST = 'LIST'
 DATA_NONE = None
+
+FORMAT = '%(asctime)s - %(logname)s - %(levelname)7s - %(message)s'
+logging.basicConfig(stream=sys.stdout, format=FORMAT)
+logger = logging.getLogger('fingerprinter')
+
+d = {'host'}
+
+LOGNAME_START = {'logname': 'setup'}
 
 
 class UrlInfo:
@@ -72,7 +80,8 @@ class Request:
         data = ''
 
         while attempt < MAX_ATTEMPT:
-            if globals()['verbose'] and attempt > 0: print "attempt: ", attempt
+            # if globals()['verbose'] and attempt > 0: print "attempt: ", attempt
+            # if attempt > 0: logger.debug("attempt <attempt>")
 
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
@@ -80,8 +89,7 @@ class Request:
                 s.connect((host, port))
                 s.send(str(self))
             except(socket.error, RuntimeError, Exception) as e:
-                if globals()['verbose']: print "submit:", e.strerror
-                break
+                raise ValueError(e)
 
             data = ''
 
@@ -195,8 +203,8 @@ def add_characteristic(category, name, value, fingerprint, data_type=DATA_NONE):
         return
 
 
-def get_characteristics(test_name, response, fingerprint):
-    if globals()['verbose']: print "applying", test_name
+def get_characteristics(test_name, response, fingerprint, host):
+    logger.debug("applying %s", test_name, extra={'logname': host})
 
     response_code, response_text = response.return_code()
     server_name_claimed = response.server_name()
@@ -236,43 +244,43 @@ def get_characteristics(test_name, response, fingerprint):
         add_characteristic(SYNTACTIC, 'ETag', data, fingerprint)
 
 
-def default_get(url, fingerprint):
-    request = Request(url)
+def default_get(host, fingerprint):
+    request = Request(host)
     response = request.submit()
-    get_characteristics('default_get', response, fingerprint)
+    get_characteristics('default_get', response, fingerprint, host)
 
 
-def default_options(url, fingerprint):
-    request = Request(url, method='OPTIONS')
+def default_options(host, fingerprint):
+    request = Request(host, method='OPTIONS')
     response = request.submit()
-    get_characteristics('default_options', response, fingerprint)
+    get_characteristics('default_options', response, fingerprint, host)
 
 
-def unknown_method(url, fingerprint):
-    request = Request(url, method='ABCDEFG')
+def unknown_method(host, fingerprint):
+    request = Request(host, method='ABCDEFG')
     response = request.submit()
-    get_characteristics('unknown_method', response, fingerprint)
+    get_characteristics('unknown_method', response, fingerprint, host)
 
 
-def unauthorized_activity(url, fingerprint):
+def unauthorized_activity(host, fingerprint):
     activities = ('OPTIONS', 'TRACE', 'GET', 'HEAD', 'DELETE',
                   'PUT', 'POST', 'COPY', 'MOVE', 'MKCOL',
                   'PROPFIND', 'PROPPATCH', 'LOCK', 'UNLOCK',
                   'SEARCH')
 
     for activity in activities:
-        request = Request(url, method=activity)
+        request = Request(host, method=activity)
         response = request.submit()
-        get_characteristics('unauthorized_activity_' + activity, response, fingerprint)
+        get_characteristics('unauthorized_activity_' + activity, response, fingerprint, host)
 
 
-def empty_uri(url, fingerprint):
-    request = Request(url, local_uri='/ABCDEFG')
+def empty_uri(host, fingerprint):
+    request = Request(host, local_uri='/ABCDEFG')
     response = request.submit()
-    get_characteristics('empty_uri', response, fingerprint)
+    get_characteristics('empty_uri', response, fingerprint, host)
 
 
-def malformed_method(url, fingerprint):
+def malformed_method(host, fingerprint):
     # TODO also use  other activities like HEAD, PUT etc, loop over activity
     # Great increase in requests though
 
@@ -288,28 +296,28 @@ def malformed_method(url, fingerprint):
     )
 
     for index, method in zip(range(len(malformed_methods)), malformed_methods):
-        request = Request(url)
+        request = Request(host)
         request.method_line = method
         response = request.submit()
-        get_characteristics('MALFORMED_' + ('000' + str(index))[-3:], response, fingerprint)
+        get_characteristics('MALFORMED_' + ('000' + str(index))[-3:], response, fingerprint, host)
 
 
-def unavailable_accept(url, fingerprint):
-    request = Request(url)
+def unavailable_accept(host, fingerprint):
+    request = Request(host)
     request.add_header('Accept', 'abcd/efgh')
     response = request.submit()
-    get_characteristics('unavailable_accept', response, fingerprint)
+    get_characteristics('unavailable_accept', response, fingerprint, host)
 
 
-def long_content_length(url, fingerprint):
-    request = Request(url)
+def long_content_length(host, fingerprint):
+    request = Request(host)
     request.add_header('Content-Length', str(sys.maxint))
     request.body = 'abcdefgh'
     response = request.submit()
-    get_characteristics('long_content_length', response, fingerprint)
+    get_characteristics('long_content_length', response, fingerprint, host)
 
 
-def get_fingerprint(url):
+def get_fingerprint(host):
     fingerprint = {
         LEXICAL: {},
         SYNTACTIC: {},
@@ -317,36 +325,39 @@ def get_fingerprint(url):
     }
 
     # TODO list any possible methods here
-    default_get(url, fingerprint)
-    default_options(url, fingerprint)
-    unknown_method(url, fingerprint)
-    unauthorized_activity(url, fingerprint)
-    empty_uri(url, fingerprint)
-    malformed_method(url, fingerprint)
+    default_get(host, fingerprint)
+    default_options(host, fingerprint)
+    unknown_method(host, fingerprint)
+    unauthorized_activity(host, fingerprint)
+    empty_uri(host, fingerprint)
+    malformed_method(host, fingerprint)
     # unavailable_accept(url, fingerprint)
     # long_content_length(url, fingerprint)
 
     return fingerprint
 
 
-def save_fingerprint(fingerprint, url, directory):
-    url_info = UrlInfo(url)
+def save_fingerprint(args, fingerprint, host):
+    url_info = UrlInfo(host)
 
     # TODO check for file existence and maybe skip querying if found
-    if directory[-1:] != '/':
-        directory += '/'
-    f = directory + url_info.host + '.' + str(url_info.port)
+    d = args.output
+
+    if d[-1:] != '/':
+        d += '/'
+    f = d + url_info.host + '.' + str(url_info.port)
     f_url = open(f, 'w+')
     pprint.PrettyPrinter(stream=f_url).pprint(fingerprint)
     f_url.close()
 
-    if globals()['verbose']: print "Output saved to", f
+    logger.info("saved output to %s", f, extra={'logname': host})
 
 
-def get_fingerprints_from_storage(directories):
-    fingerprints = []
+def get_known_fingerprints(args):
+    if args.gather is False:
+        fingerprints = []
+        d = args.known
 
-    for d in directories:
         if d[-1:] != '/':
             d += '/'
         for f in glob.glob(d + '/*'):
@@ -354,9 +365,12 @@ def get_fingerprints_from_storage(directories):
             f_fingerprint = eval(f_file.read())
             fingerprints.append(f_fingerprint)
             f_file.close()
-            if globals()['verbose']: print "Loading known fingerprint", f
+            # if globals()['verbose']: print "Loading known fingerprint", f
+            logger.debug("loading known fingerprint %s", f, extra=LOGNAME_START)
 
-    return fingerprints
+        return fingerprints
+    else:
+        return
 
 
 def get_fingerprint_scores(subject, known_fingerprints):
@@ -483,7 +497,8 @@ def sort_scores(scores):
 
 
 def print_scores(hostname, scores):
-    print '- %-50s\n%-40s   %4s : %3s : %3s' % (hostname[:50], 'name', 'matches', 'mismatches', 'unknowns')
+    lint = "-" * 80
+    print '\n%s\n%-50s\n%-40s   %4s : %3s : %3s' % (lint, hostname[:50], 'name', 'matches', 'mismatches', 'unknowns')
 
     for score in scores:
         name = score[0][LEXICAL]['SERVER_NAME_CLAIMED'][:50]
@@ -492,66 +507,122 @@ def print_scores(hostname, scores):
         unknowns = score[1]['unknowns']
 
         print '%-50s   %3d : %3d : %3d' % (name, matches, mismatches, unknowns)
+    print lint
 
 
-def print_fingerprint(fingerprint):
+def print_fingerprint(fingerprint, host):
+    logger.debug("output:", extra={'logname':host})
     pp = pprint.PrettyPrinter(indent=4)
     pp.pprint(fingerprint)
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Find fingerprints for web servers and store them',
-                                     prog='prog',
-                                     formatter_class=lambda prog: argparse.HelpFormatter(prog, max_help_position=27)
-                                     )
+
+def parse_arguments():
+    parser = argparse.ArgumentParser(
+        description='Fingerprint web servers and store them',
+        formatter_class=lambda prog: argparse.HelpFormatter(prog, max_help_position=30)
+    )
 
     group = parser.add_mutually_exclusive_group(required=True)
 
-    group.add_argument('-i', '--input', dest='input', help='A hostname or IP address')
-    group.add_argument('-f', '--file', type=argparse.FileType('r'), dest='file', help='A file with line separated '
-                                                                              'hostnames or IP addresses')
+    group.add_argument(
+        '-i', '--input',
+        help='hostname or IP address',
+        dest='input'
+    )
+    group.add_argument(
+        '-f', '--file',
+        help='file with line separated hostnames or IP addresses',
+        type=argparse.FileType('r'),
+        dest='file'
+    )
 
-    parser.add_argument('-s', '--save', dest='output', default='output/', help="The directory where output "
-                                                                                  "fingerprints are stored")
+    parser.add_argument(
+        '-s', '--save',
+        help="directory where output fingerprints are stored",
+        dest='output', default='output/'
+    )
 
-    parser.add_argument('-k', '--known', dest='known', default='known/', help="The directory where known "
-                                                                                       "fingerprints are stored")
+    parser.add_argument(
+        '-k', '--known',
+        help="directory where known fingerprints are stored",
+        dest='known', default='known/'
+    )
 
-    parser.add_argument('-g', '--gather', action='store_true', default=False, help="Only gather data "
-                                                                                   "(omit comparing results "
-                                                                                   "or saving output)")
+    parser.add_argument(
+        '-g', '--gather',
+        help="only gather data (omit comparing results)",
+        action='store_true', default=False
+    )
 
-    parser.add_argument('-v', '--verbose', action='store_true', default=False, help="Show verbose output")
+    parser.add_argument(
+        '-d', '--debug',
+        help="show debugging statements",
+        action="store_const", dest="loglevel", const=logging.DEBUG,
+        default=logging.WARNING
+    )
+    parser.add_argument(
+        '-v', '--verbose',
+        help="show verbose statements",
+        action="store_const", dest="loglevel", const=logging.INFO,
+    )
+
+    return parser.parse_args()
 
 
-    # TODO bad practice with globals
-    globals().update(parser.parse_args().__dict__)
+def start_logger(args):
+    logger.setLevel(args.loglevel)
+    logger.info('starting session', extra=LOGNAME_START)
 
+
+def get_hosts(args):
     hosts = []
-    if globals()['input'] is not None:
-        hosts.append(globals()['input'])
+    if args.input is not None:
+        hosts.append(args.input)
     else:
-        hosts += [host.strip() for host in globals()['file'].readlines()]
+        hosts += [host.strip() for host in args.file.readlines()]
 
-    if globals()['gather'] is False:
-        fingerprints_storage = get_fingerprints_from_storage([globals()['known']])
+    return hosts
 
+
+def process_host(args, host, known_fingerprints):
+    f = get_fingerprint(host)
+
+    save_fingerprint(args, f, host)
+
+    if args.loglevel is logging.DEBUG: print_fingerprint(f, host)
+
+    if args.gather is False:
+        scores = get_fingerprint_scores(f, known_fingerprints)
+
+        scores = sort_scores(scores)
+
+        print_scores(host, scores)
+
+
+def process_hosts(args, hosts, known_fingerprints):
     for host in hosts:
-        f = get_fingerprint(host)
+        try:
+            process_host(args, host, known_fingerprints)
+        except ValueError as e:
+            logger.error(e, extra={'logname': host})
 
-        if globals()['verbose']: print_fingerprint(f)
 
-        if globals()['gather'] is False:
-            scores = get_fingerprint_scores(f, fingerprints_storage)
+if __name__ == '__main__':
+    args = parse_arguments()
 
-            scores = sort_scores(scores)
+    # TODO debug
+    # args.gather = True
+    # args.loglevel = logging.INFO
 
-            print_scores(host, scores)
+    start_logger(args)
 
-            save_fingerprint(f, host, globals()['output'])
+    hosts = get_hosts(args)
 
+    known_fingerprints = get_known_fingerprints(args)
+
+    process_hosts(args, hosts, known_fingerprints)
 
     # TODO
     # - compare against predefined footprints
-    # - check if hostname/port already exists
-    # - multiple URL's
-    # - create a counter
+    # - check if hostname/port already exists in output file
+    # - create a counter per predefined footprin?
