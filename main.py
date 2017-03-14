@@ -3,7 +3,7 @@
 # Licensed under the MIT License (the License); you may not
 # use this file except in compliance with the License. You may obtain a copy
 # of the License at https://opensource.org/licenses/MIT#
-import sys, urlparse, argparse, socket, select, time, re, pprint, glob, logging
+import sys, urlparse, argparse, socket, select, time, re, pprint, glob, logging, pickle, os, hashlib
 
 MAX_ATTEMPT = 3
 WAIT_TIME = 1
@@ -21,6 +21,8 @@ SEMANTIC = 'SEMANTIC'
 
 DATA_LIST = 'LIST'
 DATA_NONE = None
+
+CACHE = 'cache'
 
 FORMAT = '%(asctime)s - %(logname)s - %(levelname)7s - %(message)s'
 logging.basicConfig(stream=sys.stdout, format=FORMAT)
@@ -71,18 +73,35 @@ class Request:
     def add_header(self, key, value):
         self.headers.append([key, value])
 
+    @property
     def submit(self):
+        CACHE_RESPONSE = False
+
         url_info = UrlInfo(self.url)
         host = url_info.host
         port = url_info.port
+
+        self_hex = hashlib.md5(str(self)).hexdigest()
+        d = CACHE + '/' + host + '.' + str(port)
+        f = d + '/' + self_hex
+        if os.path.isdir(d):
+            # print "found host directory"
+            if os.path.exists(f):
+                # logger.debug("using cached response %s", f, extra={'logname': host + ':' + str(port)})
+                f_url = open(f, 'rb')
+                response = pickle.load(f_url)
+                f_url.close()
+                return response
+            else:
+                CACHE_RESPONSE = True
+        else:
+            os.makedirs(d)
+            CACHE_RESPONSE = True
 
         attempt = 0
         data = ''
 
         while attempt < MAX_ATTEMPT:
-            # if globals()['verbose'] and attempt > 0: print "attempt: ", attempt
-            # if attempt > 0: logger.debug("attempt <attempt>")
-
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
             try:
@@ -116,6 +135,13 @@ class Request:
                 s.close()
                 continue
             break
+
+        if CACHE_RESPONSE:
+            f_url = open(f, 'wb')
+            pickle.dump(Response(data), f_url, protocol=pickle.HIGHEST_PROTOCOL)
+            f_url.close()
+
+            # logger.debug("caching response", extra={'logname': host + ':' + str(port)})
 
         return Response(data)
 
@@ -246,19 +272,19 @@ def get_characteristics(test_name, response, fingerprint, host):
 
 def default_get(host, fingerprint):
     request = Request(host)
-    response = request.submit()
+    response = request.submit
     get_characteristics('default_get', response, fingerprint, host)
 
 
 def default_options(host, fingerprint):
     request = Request(host, method='OPTIONS')
-    response = request.submit()
+    response = request.submit
     get_characteristics('default_options', response, fingerprint, host)
 
 
 def unknown_method(host, fingerprint):
     request = Request(host, method='ABCDEFG')
-    response = request.submit()
+    response = request.submit
     get_characteristics('unknown_method', response, fingerprint, host)
 
 
@@ -270,13 +296,13 @@ def unauthorized_activity(host, fingerprint):
 
     for activity in activities:
         request = Request(host, method=activity)
-        response = request.submit()
+        response = request.submit
         get_characteristics('unauthorized_activity_' + activity, response, fingerprint, host)
 
 
 def empty_uri(host, fingerprint):
     request = Request(host, local_uri='/ABCDEFG')
-    response = request.submit()
+    response = request.submit
     get_characteristics('empty_uri', response, fingerprint, host)
 
 
@@ -298,14 +324,14 @@ def malformed_method(host, fingerprint):
     for index, method in zip(range(len(malformed_methods)), malformed_methods):
         request = Request(host)
         request.method_line = method
-        response = request.submit()
+        response = request.submit
         get_characteristics('MALFORMED_' + ('000' + str(index))[-3:], response, fingerprint, host)
 
 
 def unavailable_accept(host, fingerprint):
     request = Request(host)
     request.add_header('Accept', 'abcd/efgh')
-    response = request.submit()
+    response = request.submit
     get_characteristics('unavailable_accept', response, fingerprint, host)
 
 
@@ -313,7 +339,7 @@ def long_content_length(host, fingerprint):
     request = Request(host)
     request.add_header('Content-Length', str(sys.maxint))
     request.body = 'abcdefgh'
-    response = request.submit()
+    response = request.submit
     get_characteristics('long_content_length', response, fingerprint, host)
 
 
@@ -324,15 +350,21 @@ def get_fingerprint(host):
         SEMANTIC: {}
     }
 
+    fingerprint_methods = [default_get, default_options, unknown_method, unauthorized_activity, empty_uri, malformed_method, unavailable_accept, long_content_length]
+
+    for method in fingerprint_methods:
+        logger.info("processing %s", method.__name__, extra={'logname': host})
+        method(host, fingerprint)
+
     # TODO list any possible methods here
-    default_get(host, fingerprint)
-    default_options(host, fingerprint)
-    unknown_method(host, fingerprint)
-    unauthorized_activity(host, fingerprint)
-    empty_uri(host, fingerprint)
-    malformed_method(host, fingerprint)
-    # unavailable_accept(url, fingerprint)
-    # long_content_length(url, fingerprint)
+    # default_get(host, fingerprint)
+    # default_options(host, fingerprint)
+    # unknown_method(host, fingerprint)
+    # unauthorized_activity(host, fingerprint)
+    # empty_uri(host, fingerprint)
+    # malformed_method(host, fingerprint)
+    # unavailable_accept(host, fingerprint)
+    # long_content_length(host, fingerprint)
 
     return fingerprint
 
@@ -365,7 +397,6 @@ def get_known_fingerprints(args):
             f_fingerprint = eval(f_file.read())
             fingerprints.append(f_fingerprint)
             f_file.close()
-            # if globals()['verbose']: print "Loading known fingerprint", f
             logger.debug("loading known fingerprint %s", f, extra=LOGNAME_START)
 
         return fingerprints

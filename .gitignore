@@ -4,6 +4,8 @@
 old.py
 output/*
 !output/example.com.80
+cache/*
+!cache/example.com.80/
 
 ### Linux ###
 *~
