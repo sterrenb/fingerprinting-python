@@ -421,7 +421,9 @@ def get_fingerprint_scores(subject, known_fingerprints):
 
         similarity = find_similar_semantic(known, similarity, subject)
 
-        scores.append([known, similarity])
+        certainty = similarity['matches'] / float(similarity['matches'] + similarity['mismatches'])
+
+        scores.append([known, similarity, certainty])
     return scores
 
 
@@ -507,10 +509,12 @@ def find_similar_semantic(known, similarity, subject):
 
 def score_compare(score_a, score_b):
     server_a = score_a[0]
-    matches_a = score_a[1]['matches']
+    # matches_a = score_a[1]['matches']
+    matches_a = score_a[2]
 
     server_b = score_b[0]
-    matches_b = score_b[1]['matches']
+    # matches_b = score_b[1]['matches']
+    matches_b = score_b[2]
 
     compared = -cmp(matches_a, matches_b)
     if compared != 0:
@@ -530,15 +534,16 @@ def sort_scores(scores):
 
 def print_scores(hostname, scores):
     lint = "-" * 80
-    print '\n%s\n%-50s\n%-40s   %4s : %3s : %3s' % (lint, hostname[:50], 'name', 'matches', 'mismatches', 'unknowns')
+    print '\n%s\n%-50s\n%-50s   %4s (%4s : %3s : %3s)' % (lint, hostname[:50], 'name', 'certainty', 'matches', 'mismatches', 'unknowns')
 
     for score in scores:
         name = score[0][LEXICAL]['SERVER_NAME_CLAIMED'][:50]
         matches = score[1]['matches']
         mismatches = score[1]['mismatches']
         unknowns = score[1]['unknowns']
+        certainty = score[2]
 
-        print '%-50s   %3d : %3d : %3d' % (name, matches, mismatches, unknowns)
+        print '%-50s   %.3f     (%2d : %2d : %2d)' % (name, certainty, matches, mismatches, unknowns)
     print lint
 
 
