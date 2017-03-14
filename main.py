@@ -214,7 +214,8 @@ class Response:
     def server_name(self):
         if not self.has_header('Server'):
             return None
-        return self.header_data('Server')
+        # This cuts off any possible modules but also anything else
+        return self.header_data('Server').split()[0]
 
 
 def add_characteristic(category, name, value, fingerprint, data_type=DATA_NONE):
@@ -321,7 +322,7 @@ def malformed_method(host, fingerprint):
         'I AM METHOD'
     )
 
-    for index, method in zip(range(len(malformed_methods)), malformed_methods):
+    for index, method in enumerate(malformed_methods):
         request = Request(host)
         request.method_line = method
         response = request.submit
