@@ -87,7 +87,7 @@ class Request:
         if os.path.isdir(d):
             # print "found host directory"
             if os.path.exists(f):
-                # logger.debug("using cached response %s", f, extra={'logname': host + ':' + str(port)})
+                logger.debug("using cached response %s", f, extra={'logname': host + ':' + str(port)})
                 f_url = open(f, 'rb')
                 response = pickle.load(f_url)
                 f_url.close()
@@ -351,7 +351,8 @@ def get_fingerprint(host):
         SEMANTIC: {}
     }
 
-    fingerprint_methods = [default_get, default_options, unknown_method, unauthorized_activity, empty_uri, malformed_method, unavailable_accept, long_content_length]
+    fingerprint_methods = [default_get, default_options, unknown_method, unauthorized_activity, empty_uri,
+                           malformed_method, unavailable_accept, long_content_length]
 
     for method in fingerprint_methods:
         logger.info("processing %s", method.__name__, extra={'logname': host})
@@ -405,7 +406,7 @@ def get_known_fingerprints(args):
         return
 
 
-def get_fingerprint_scores(subject, known_fingerprints):
+def get_fingerprint_scores(args, subject, known_fingerprints):
     scores = []
 
     for known in known_fingerprints:
@@ -415,13 +416,20 @@ def get_fingerprint_scores(subject, known_fingerprints):
             'unknowns': 0
         }
 
-        similarity = find_similar_lexical(known, similarity, subject)
+        header_match = subject[LEXICAL].has_key('SERVER_NAME_CLAIMED') \
+                       and known[LEXICAL].has_key('SERVER_NAME_CLAIMED') \
+                       and subject[LEXICAL]['SERVER_NAME_CLAIMED'] == known[LEXICAL]['SERVER_NAME_CLAIMED']
 
-        similarity = find_similar_syntactic(known, similarity, subject)
+        if header_match and args.lazy:
+            certainty = 1
+        else:
+            similarity = find_similar_lexical(known, similarity, subject)
 
-        similarity = find_similar_semantic(known, similarity, subject)
+            similarity = find_similar_syntactic(known, similarity, subject)
 
-        certainty = similarity['matches'] / float(similarity['matches'] + similarity['mismatches'])
+            similarity = find_similar_semantic(known, similarity, subject)
+
+            certainty = similarity['matches'] / float(similarity['matches'] + similarity['mismatches'])
 
         scores.append([known, similarity, certainty])
     return scores
@@ -534,7 +542,8 @@ def sort_scores(scores):
 
 def print_scores(hostname, scores):
     lint = "-" * 80
-    print '\n%s\n%-50s\n%-50s   %4s (%4s : %3s : %3s)' % (lint, hostname[:50], 'name', 'certainty', 'matches', 'mismatches', 'unknowns')
+    print '\n%s\n%-50s\n%-50s   %4s (%4s : %3s : %3s)' % (
+        lint, hostname[:50], 'name', 'certainty', 'matches', 'mismatches', 'unknowns')
 
     for score in scores:
         name = score[0][LEXICAL]['SERVER_NAME_CLAIMED'][:50]
@@ -548,7 +557,7 @@ def print_scores(hostname, scores):
 
 
 def print_fingerprint(fingerprint, host):
-    logger.debug("output:", extra={'logname':host})
+    logger.debug("output:", extra={'logname': host})
     pp = pprint.PrettyPrinter(indent=4)
     pp.pprint(fingerprint)
 
@@ -592,6 +601,12 @@ def parse_arguments():
     )
 
     parser.add_argument(
+        '-l', '--lazy',
+        help="trust server banners and omit other results if possible",
+        action='store_true', default=False
+    )
+
+    parser.add_argument(
         '-d', '--debug',
         help="show debugging statements",
         action="store_const", dest="loglevel", const=logging.DEBUG,
@@ -629,7 +644,7 @@ def process_host(args, host, known_fingerprints):
     if args.loglevel is logging.DEBUG: print_fingerprint(f, host)
 
     if args.gather is False:
-        scores = get_fingerprint_scores(f, known_fingerprints)
+        scores = get_fingerprint_scores(args, f, known_fingerprints)
 
         scores = sort_scores(scores)
 

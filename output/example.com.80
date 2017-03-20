@@ -4,7 +4,7 @@
              '411': 'Length Required',
              '501': 'Not Implemented',
              '505': 'HTTP Version Not Supported',
-             'SERVER_NAME_CLAIMED': 'ECS (iad/182A)'},
+             'SERVER_NAME_CLAIMED': 'ECS'},
  'SEMANTIC': {'MALFORMED_000': '501',
               'MALFORMED_001': '501',
               'MALFORMED_002': '501',
