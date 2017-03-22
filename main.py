@@ -3,7 +3,20 @@
 # Licensed under the MIT License (the License); you may not
 # use this file except in compliance with the License. You may obtain a copy
 # of the License at https://opensource.org/licenses/MIT#
-import sys, urlparse, argparse, socket, select, time, re, pprint, glob, logging, pickle, os, hashlib
+
+import argparse
+import glob
+import hashlib
+import logging
+import os
+import pickle
+import pprint
+import re
+import select
+import socket
+import sys
+import time
+import urlparse
 
 MAX_ATTEMPT = 3
 WAIT_TIME = 1
@@ -308,25 +321,56 @@ def empty_uri(host, fingerprint):
 
 
 def malformed_method(host, fingerprint):
-    # TODO also use  other activities like HEAD, PUT etc, loop over activity
-    # Great increase in requests though
-
-    activity = 'GET'
-    malformed_methods = (
-        activity,
-        activity + '/',
-        activity + '/1.0',
-        activity + ' / HTTP/123.45',
-        activity + ' / HTP/1.0',
-        activity + ' / HTT/1.0',
-        'I AM METHOD'
-    )
+    malformed_methods = get_malformed_methods()
 
     for index, method in enumerate(malformed_methods):
         request = Request(host)
         request.method_line = method
         response = request.submit
         get_characteristics('MALFORMED_' + ('000' + str(index))[-3:], response, fingerprint, host)
+
+
+def get_malformed_methods():
+    activities = 'GET', 'HEAD', 'POST', 'PUT'
+
+    malformed_methods_list = []
+
+    for activity in activities:
+        malformed_methods = (
+            activity,
+            activity + '/',
+            activity + '/1.0',
+            activity + ' / HTTP/123.45',
+            activity + ' / HTTP/999.99',
+            activity + ' / HTP/1.0',
+            activity + ' / HTT/1.0',
+            activity + ' / HTTP/7.Q',
+            activity + ' / HTTP/1.0X',
+            activity + ' /abcdefghijklmnopqrstuvwxyz/.. HTTP/1.0',
+            activity + ' /./././././././././././././././ HTTP/1.0',
+            activity + ' /.. HTTP/1.0',
+            activity + '\t/\tHTTP/1.0',
+            activity + '\t/\tHTTP/1.0',
+            activity + ' / H',
+            activity + ' / ' + 'HTTP/' + '1' * 1000 + '.0',
+            activity + ' FTP://abcdefghi HTTP/1.0',
+            activity + ' C:\ HTTP/1.0',
+            ' ' * 1000 + activity + ' / HTTP/1.0',
+            '\n' + activity + ' / HTTP/1.0',
+        )
+
+        malformed_methods_list += malformed_methods
+
+    malformed_activity_independent = (
+        'GET GET GET',
+        'HELLO',
+        '%47%45%54 / HTTP/1.0',
+        'GEX\bT / HTTP/1.0'
+    )
+
+    malformed_methods_list += malformed_activity_independent
+
+    return malformed_methods_list
 
 
 def unavailable_accept(host, fingerprint):
@@ -357,16 +401,6 @@ def get_fingerprint(host):
     for method in fingerprint_methods:
         logger.info("processing %s", method.__name__, extra={'logname': host})
         method(host, fingerprint)
-
-    # TODO list any possible methods here
-    # default_get(host, fingerprint)
-    # default_options(host, fingerprint)
-    # unknown_method(host, fingerprint)
-    # unauthorized_activity(host, fingerprint)
-    # empty_uri(host, fingerprint)
-    # malformed_method(host, fingerprint)
-    # unavailable_accept(host, fingerprint)
-    # long_content_length(host, fingerprint)
 
     return fingerprint
 
@@ -437,24 +471,21 @@ def get_fingerprint_scores(args, subject, known_fingerprints):
 
 def find_similar_lexical(known, similarity, subject):
     # TODO select appropriate response codes, the more the better
-    response_codes = ('200',
-                      '400', '404', '405',)
-
+    response_codes = range(200, 220) + \
+          range(300, 320) + \
+          range(400, 420) + \
+          range(500, 520)
     for code in response_codes:
-        known_text = subject_text = ''
-
-        if known[LEXICAL].has_key(code):
+        if known[LEXICAL].has_key(code) and subject[LEXICAL].has_key(code):
             known_text = known[LEXICAL][code]
-
-        if subject[LEXICAL].has_key(code):
             subject_text = subject[LEXICAL][code]
 
-        if known_text == '' or subject_text == '':
-            similarity['unknowns'] += 1
-        elif known_text == subject_text:
-            similarity['matches'] += 1
-        else:
-            similarity['mismatches'] += 1
+            if known_text == '' or subject_text == '':
+                similarity['unknowns'] += 1
+            elif known_text == subject_text:
+                similarity['matches'] += 1
+            else:
+                similarity['mismatches'] += 1
 
     return similarity
 
@@ -502,15 +533,19 @@ def find_similar_etag(known, similarity, subject):
 
 def find_similar_semantic(known, similarity, subject):
     # TODO make length based on no. of malform requests instead of hardcoded
-    for i in range(7):
+    for i in range(len(get_malformed_methods())):
         malformed = 'MALFORMED_' + ('000' + str(i))[-3:]
-        known_malformed = known[SEMANTIC][malformed]
-        subject_malformed = subject[SEMANTIC][malformed]
 
-        if known_malformed == subject_malformed:
-            similarity['matches'] += 1
+        if known[SEMANTIC].has_key(malformed):
+            known_malformed = known[SEMANTIC][malformed]
+            subject_malformed = subject[SEMANTIC][malformed]
+
+            if known_malformed == subject_malformed:
+                similarity['matches'] += 1
+            else:
+                similarity['mismatches'] += 1
         else:
-            similarity['mismatches'] += 1
+            similarity['unknowns'] += 1
 
     return similarity
 
