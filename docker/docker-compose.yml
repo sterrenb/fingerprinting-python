@@ -1,0 +1,29 @@
+version: '2'
+
+services:
+
+  # Nginx
+  nginx-1.10.2:
+    image: "nginx:1.10.2"
+    ports:
+     - "8080:80"
+  nginx-1.11.9:
+    image: "nginx:1.11.9"
+    ports:
+     - "8081:80"
+
+  # Apache
+  apache-2.2.32:
+    image: "httpd:2.2.32"
+    ports:
+      - "8082:80"
+  apache-2.4.25:
+    image: "httpd:2.4.25"
+    ports:
+     - "8083:80"
+
+   # Lighttpd
+  lighttpd-1.4.39:
+    image: "sebp/lighttpd"
+    ports:
+      - "8084:80"
