@@ -31,6 +31,7 @@ NO_RESPONSE_TEXT = 'NONE'
 LEXICAL = 'LEXICAL'
 SYNTACTIC = 'SYNTACTIC'
 SEMANTIC = 'SEMANTIC'
+REQUESTS = 'REQUESTS'
 
 DATA_LIST = 'LIST'
 DATA_NONE = None
@@ -44,6 +45,9 @@ logger = logging.getLogger('fingerprinter')
 d = {'host'}
 
 LOGNAME_START = {'logname': 'setup'}
+
+EXPORT_CSV = True
+csv_export = {}
 
 
 class UrlInfo:
@@ -104,6 +108,10 @@ class Request:
                 f_url = open(f, 'rb')
                 response = pickle.load(f_url)
                 f_url.close()
+
+                if EXPORT_CSV:
+                    add_request_response(self, response, url_info)
+
                 return response
             else:
                 CACHE_RESPONSE = True
@@ -156,7 +164,12 @@ class Request:
 
             # logger.debug("caching response", extra={'logname': host + ':' + str(port)})
 
-        return Response(data)
+        response = Response(data)
+
+        if EXPORT_CSV:
+            add_request_response(self, response, url_info)
+
+        return response
 
 
 class Response:
@@ -241,6 +254,16 @@ def add_characteristic(category, name, value, fingerprint, data_type=DATA_NONE):
 
     if fingerprint[category][name] == value:
         return
+
+
+def add_request_response(request, response, url_info):
+    print "URL: " + str(request)
+    host = url_info.host + ':' + str(url_info.port)
+
+    if not csv_export.has_key(host):
+        csv_export[host] = {}
+
+    csv_export[host][str(request)] = response.response_code
 
 
 def get_characteristics(test_name, response, fingerprint, host):
@@ -513,6 +536,7 @@ def find_similar_allow_order(known, similarity, subject):
     else:
         similarity['unknowns'] += 1
 
+
     return similarity
 
 
@@ -708,6 +732,9 @@ if __name__ == '__main__':
     known_fingerprints = get_known_fingerprints(args)
 
     process_hosts(args, hosts, known_fingerprints)
+
+    csv_export
+    pass
 
     # TODO
     # - compare against predefined footprints
