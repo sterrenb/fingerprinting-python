@@ -1,6 +1,8 @@
 # Custom
 .idea/
 *.txt
+*.csv*
+*.bak
 old.py
 output/*
 !output/example.com.80

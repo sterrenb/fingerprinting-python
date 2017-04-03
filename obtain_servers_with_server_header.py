@@ -44,7 +44,8 @@ def check_urls(urls):
                 server[1] = server[1].split()[0]
 
                 if len(server) == 2 and not '' in server:
-                    output.write("%s,%s\n" % (server[0], server[1]))
+                    # output.write("%s,%s\n" % (server[0], server[1]))
+                    output.write("%s\n" % url)
                     pass
             else:
                 output.write("%s\n" % url)

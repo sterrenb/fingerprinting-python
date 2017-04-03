@@ -5,6 +5,7 @@
 # of the License at https://opensource.org/licenses/MIT#
 
 import argparse
+import csv
 import glob
 import hashlib
 import logging
@@ -17,6 +18,7 @@ import socket
 import sys
 import time
 import urlparse
+from operator import itemgetter
 
 MAX_ATTEMPT = 3
 WAIT_TIME = 1
@@ -37,6 +39,8 @@ DATA_LIST = 'LIST'
 DATA_NONE = None
 
 CACHE = 'cache'
+CSV = 'aaa.csv'
+CSV_VERBOSE = False
 
 FORMAT = '%(asctime)s - %(logname)s - %(levelname)7s - %(message)s'
 logging.basicConfig(stream=sys.stdout, format=FORMAT)
@@ -102,19 +106,23 @@ class Request:
         d = CACHE + '/' + host + '.' + str(port)
         f = d + '/' + self_hex
         if os.path.isdir(d):
-            # print "found host directory"
-            if os.path.exists(f):
-                logger.debug("using cached response %s", f, extra={'logname': host + ':' + str(port)})
-                f_url = open(f, 'rb')
-                response = pickle.load(f_url)
-                f_url.close()
+            try:
+                if os.path.exists(f):
+                    logger.debug("using cached response %s", f, extra={'logname': host + ':' + str(port)})
+                    f_url = open(f, 'rb')
+                    response = pickle.load(f_url)
+                    f_url.close()
 
-                if EXPORT_CSV:
-                    add_request_response(self, response, url_info)
+                    if EXPORT_CSV:
+                        add_request_response(self, response, url_info)
 
-                return response
-            else:
-                CACHE_RESPONSE = True
+                    return response
+                else:
+                    # logger.warning("no cache file for %s", f, extra={'logname': host + ':' + str(port)})
+                    CACHE_RESPONSE = True
+            except EOFError:
+                logger.error("corrupt cached response %s, removing it", f, extra={'logname': host + ':' + str(port)})
+                os.remove(f)
         else:
             os.makedirs(d)
             CACHE_RESPONSE = True
@@ -124,11 +132,14 @@ class Request:
 
         while attempt < MAX_ATTEMPT:
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.settimeout(1)
 
             try:
                 s.connect((host, port))
+                s.settimeout(None)
                 s.send(str(self))
             except(socket.error, RuntimeError, Exception) as e:
+                # logger.error("failed to connect: %s", e, extra={'logname': host + ':' + str(port)})
                 raise ValueError(e)
 
             data = ''
@@ -136,7 +147,7 @@ class Request:
             try:
                 while 1:
                     # Only proceed if feedback is received
-                    ss = select.select([s], [], [], 10)[0]
+                    ss = select.select([s], [], [], 1)[0]
                     if not ss:
                         break
 
@@ -257,13 +268,12 @@ def add_characteristic(category, name, value, fingerprint, data_type=DATA_NONE):
 
 
 def add_request_response(request, response, url_info):
-    print "URL: " + str(request)
     host = url_info.host + ':' + str(url_info.port)
 
     if not csv_export.has_key(host):
         csv_export[host] = {}
 
-    csv_export[host][str(request)] = response.response_code
+    csv_export[host][str(request)] = response
 
 
 def get_characteristics(test_name, response, fingerprint, host):
@@ -422,8 +432,14 @@ def get_fingerprint(host):
                            malformed_method, unavailable_accept, long_content_length]
 
     for method in fingerprint_methods:
-        logger.info("processing %s", method.__name__, extra={'logname': host})
-        method(host, fingerprint)
+        logger.debug("processing %s", method.__name__, extra={'logname': host})
+
+        try:
+            method(host, fingerprint)
+        except ValueError as e:
+            logger.warning("%s", e, extra={'logname': host})
+            break
+
 
     return fingerprint
 
@@ -441,7 +457,7 @@ def save_fingerprint(args, fingerprint, host):
     pprint.PrettyPrinter(stream=f_url).pprint(fingerprint)
     f_url.close()
 
-    logger.info("saved output to %s", f, extra={'logname': host})
+    # logger.debug("saved output to %s", f, extra={'logname': host})
 
 
 def get_known_fingerprints(args):
@@ -495,9 +511,9 @@ def get_fingerprint_scores(args, subject, known_fingerprints):
 def find_similar_lexical(known, similarity, subject):
     # TODO select appropriate response codes, the more the better
     response_codes = range(200, 220) + \
-          range(300, 320) + \
-          range(400, 420) + \
-          range(500, 520)
+                     range(300, 320) + \
+                     range(400, 420) + \
+                     range(500, 520)
     for code in response_codes:
         if known[LEXICAL].has_key(code) and subject[LEXICAL].has_key(code):
             known_text = known[LEXICAL][code]
@@ -535,7 +551,6 @@ def find_similar_allow_order(known, similarity, subject):
             similarity['mismatches'] += 1
     else:
         similarity['unknowns'] += 1
-
 
     return similarity
 
@@ -616,7 +631,7 @@ def print_scores(hostname, scores):
 
 
 def print_fingerprint(fingerprint, host):
-    logger.debug("output:", extra={'logname': host})
+    # logger.debug("output:", extra={'logname': host})
     pp = pprint.PrettyPrinter(indent=4)
     pp.pprint(fingerprint)
 
@@ -666,15 +681,16 @@ def parse_arguments():
     )
 
     parser.add_argument(
+        '-v', '--verbose',
+        help="show verbose statements",
+        action="store_const", dest="loglevel", const=logging.INFO,
+    )
+
+    parser.add_argument(
         '-d', '--debug',
         help="show debugging statements",
         action="store_const", dest="loglevel", const=logging.DEBUG,
         default=logging.WARNING
-    )
-    parser.add_argument(
-        '-v', '--verbose',
-        help="show verbose statements",
-        action="store_const", dest="loglevel", const=logging.INFO,
     )
 
     return parser.parse_args()
@@ -700,8 +716,6 @@ def process_host(args, host, known_fingerprints):
 
     save_fingerprint(args, f, host)
 
-    if args.loglevel is logging.DEBUG: print_fingerprint(f, host)
-
     if args.gather is False:
         scores = get_fingerprint_scores(args, f, known_fingerprints)
 
@@ -711,11 +725,96 @@ def process_host(args, host, known_fingerprints):
 
 
 def process_hosts(args, hosts, known_fingerprints):
-    for host in hosts:
+    # from gevent.pool import Pool
+    # WORKERS = 100
+    #
+    # pool = Pool(WORKERS)
+    # for index, host in enumerate(hosts):
+    #     try:
+    #         logger.info("processing host (%s/%s)", index + 1, len(hosts), extra={'logname': host})
+    #         pool.spawn(process_host, args, host, known_fingerprints)
+    #     except ValueError as e:
+    #         logger.error(e, extra={'logname': host})
+    #
+    # pool.join()
+
+    for index, host in enumerate(hosts):
         try:
+            # TODO remove cache check here
+            # d = CACHE + '/' + host + '.' + str(80)
+            # if not os.path.isdir(d):
+            #     logger.info("File does not exist, skip it", extra={'logname': host})
+            #     continue
+            logger.info("processing host (%s/%s)", index, len(hosts), extra={'logname': host})
             process_host(args, host, known_fingerprints)
         except ValueError as e:
             logger.error(e, extra={'logname': host})
+
+
+def csv_exporter(dict):
+    f = open(CSV, 'w+')
+    writer = csv.writer(f, delimiter=',', quotechar='"', quoting=csv.QUOTE_ALL)
+
+    top = ['method']
+
+    results = {}
+
+    for host, requests in dict.iteritems():
+        top.append(host)
+
+        for request, response in requests.iteritems():
+            response_code_key = request.rstrip() + ' RESPONSE_CODE'
+            response_code_variable = response.response_code
+            results = update_csv_results(response_code_key, response_code_variable, results)
+
+            response_text_key = request.rstrip() + ' RESPONSE_TEXT ' + response.response_code
+            response_text_variable = response.response_text
+            results = update_csv_results(response_text_key, response_text_variable, results)
+        pass
+
+    top.append('unique values')
+
+    number_of_columns = len(top)
+
+    if CSV_VERBOSE:
+        writer.writerow(top)
+    else:
+        writer.writerow(['method', 'unique responses'])
+
+    results_sorted = []
+
+    for request, responses in results.iteritems():
+        unique_values = len(set(responses))
+
+        # Padding for correct placement of unique value counter
+        while len(responses) < number_of_columns - 2:
+            responses.append('')
+
+        responses.insert(0, request.rstrip())
+        responses.append(unique_values)
+
+        results_sorted.append(responses)
+
+        # writer.writerow(responses)
+
+    res = sorted(results_sorted, key=itemgetter(number_of_columns - 1), reverse=True)
+
+    for row in res:
+        if CSV_VERBOSE:
+            writer.writerow(row)
+        else:
+            row_short = [row[0], row[-1]]
+            writer.writerow(row_short)
+
+    f.close()
+
+
+def update_csv_results(key, value, results):
+    if not results.has_key(key):
+        results[key] = []
+
+    results[key].append(value)
+    return results
 
 
 if __name__ == '__main__':
@@ -729,11 +828,13 @@ if __name__ == '__main__':
 
     hosts = get_hosts(args)
 
+    hosts = hosts[-500:]
+
     known_fingerprints = get_known_fingerprints(args)
 
     process_hosts(args, hosts, known_fingerprints)
 
-    csv_export
+    csv_exporter(csv_export)
     pass
 
     # TODO
