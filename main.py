@@ -20,6 +20,10 @@ import time
 import urlparse
 from operator import itemgetter
 
+import datetime
+
+EXCEPTION_COUNT_MAX = 3
+
 MAX_ATTEMPT = 3
 WAIT_TIME = 1
 
@@ -39,16 +43,29 @@ DATA_LIST = 'LIST'
 DATA_NONE = None
 
 CACHE = 'cache'
-CSV = 'aaa.csv'
+BLACKLIST = 'blacklist'
+CSV = 'aaa_' + str(datetime.datetime.now()).replace(' ', '_')[:-7] + '.csv'
 CSV_VERBOSE = False
 
-FORMAT = '%(asctime)s - %(logname)s - %(levelname)7s - %(message)s'
+HOST_TOTAL = 0
+
+RESET_SEQ = "\033[0m"
+COLOR_SEQ = "\033[1;%dm"
+BOLD_SEQ = "\033[1m"
+
+# FORMAT = '%(asctime)s - %(logname)s - %(levelname)7s - %(message)s'
+FORMAT = '%(asctime)s - ' + BOLD_SEQ + '%(logname)15s' + RESET_SEQ + \
+         ' [%(host_index)d/%(host_total)d] - %(levelname)7s - %(message)s'
 logging.basicConfig(stream=sys.stdout, format=FORMAT)
 logger = logging.getLogger('fingerprinter')
 
 d = {'host'}
 
-LOGNAME_START = {'logname': 'setup'}
+LOGNAME_START = {
+    'logname': 'setup',
+    'host_index': 0,
+    'host_total': 0
+}
 
 EXPORT_CSV = True
 csv_export = {}
@@ -69,8 +86,9 @@ class UrlInfo:
 
 
 class Request:
-    def __init__(self, url, method="GET", local_uri='/', version="1.0"):
+    def __init__(self, url, host_index, method="GET", local_uri='/', version="1.0"):
         self.url = url
+        self.host_index = host_index
         self.method = method
         self.local_uri = local_uri
         self.version = version
@@ -108,7 +126,7 @@ class Request:
         if os.path.isdir(d):
             try:
                 if os.path.exists(f):
-                    logger.debug("using cached response %s", f, extra={'logname': host + ':' + str(port)})
+                    # logger.debug("using cached response %s", f, extra={'logname': host, 'host_index': self.host_index, 'host_total': HOST_TOTAL})
                     f_url = open(f, 'rb')
                     response = pickle.load(f_url)
                     f_url.close()
@@ -118,10 +136,10 @@ class Request:
 
                     return response
                 else:
-                    # logger.warning("no cache file for %s", f, extra={'logname': host + ':' + str(port)})
+                    # logger.warning("no cache file for %s", f, extra={'logname': host, 'host_index': host_index, 'host_total': HOST_TOTAL + ':' + str(port)})
                     CACHE_RESPONSE = True
             except EOFError:
-                logger.error("corrupt cached response %s, removing it", f, extra={'logname': host + ':' + str(port)})
+                logger.error("corrupt cached response %s, removing it", f, extra={'logname': host, 'host_index': self.host_index, 'host_total': HOST_TOTAL})
                 os.remove(f)
         else:
             os.makedirs(d)
@@ -135,11 +153,12 @@ class Request:
             s.settimeout(1)
 
             try:
+                # logger.info("sending request %s", str(self), extra={'logname': host, 'host_index': self.host_index, 'host_total': HOST_TOTAL})
                 s.connect((host, port))
                 s.settimeout(None)
                 s.send(str(self))
             except(socket.error, RuntimeError, Exception) as e:
-                # logger.error("failed to connect: %s", e, extra={'logname': host + ':' + str(port)})
+                self.store_cache_response(str(e), f, host, self_hex)
                 raise ValueError(e)
 
             data = ''
@@ -169,11 +188,7 @@ class Request:
             break
 
         if CACHE_RESPONSE:
-            f_url = open(f, 'wb')
-            pickle.dump(Response(data), f_url, protocol=pickle.HIGHEST_PROTOCOL)
-            f_url.close()
-
-            # logger.debug("caching response", extra={'logname': host + ':' + str(port)})
+            self.store_cache_response(data, f, host, self_hex)
 
         response = Response(data)
 
@@ -181,6 +196,14 @@ class Request:
             add_request_response(self, response, url_info)
 
         return response
+
+    def store_cache_response(self, data, f, host, self_hex):
+        logger.debug("caching response to %s", self_hex,
+                     extra={'logname': host, 'host_index': self.host_index, 'host_total': HOST_TOTAL})
+
+        f_url = open(f, 'wb')
+        pickle.dump(Response(data), f_url, protocol=pickle.HIGHEST_PROTOCOL)
+        f_url.close()
 
 
 class Response:
@@ -252,7 +275,11 @@ class Response:
         if not self.has_header('Server'):
             return None
         # This cuts off any possible modules but also anything else
-        return self.header_data('Server').split()[0]
+        s = self.header_data('Server').split()
+        if len(s) > 1:
+            return s[0]
+        else:
+            return s
 
 
 def add_characteristic(category, name, value, fingerprint, data_type=DATA_NONE):
@@ -276,8 +303,8 @@ def add_request_response(request, response, url_info):
     csv_export[host][str(request)] = response
 
 
-def get_characteristics(test_name, response, fingerprint, host):
-    logger.debug("applying %s", test_name, extra={'logname': host})
+def get_characteristics(test_name, response, fingerprint, host, host_index):
+    # logger.debug("applying %s", test_name, extra={'logname': host, 'host_index': host_index, 'host_total': HOST_TOTAL})
 
     response_code, response_text = response.return_code()
     server_name_claimed = response.server_name()
@@ -317,50 +344,50 @@ def get_characteristics(test_name, response, fingerprint, host):
         add_characteristic(SYNTACTIC, 'ETag', data, fingerprint)
 
 
-def default_get(host, fingerprint):
-    request = Request(host)
+def default_get(host, host_index, fingerprint):
+    request = Request(host, host_index)
     response = request.submit
-    get_characteristics('default_get', response, fingerprint, host)
+    get_characteristics('default_get', response, fingerprint, host, host_index)
 
 
-def default_options(host, fingerprint):
-    request = Request(host, method='OPTIONS')
+def default_options(host, host_index, fingerprint):
+    request = Request(host, host_index, method='OPTIONS')
     response = request.submit
-    get_characteristics('default_options', response, fingerprint, host)
+    get_characteristics('default_options', response, fingerprint, host, host_index)
 
 
-def unknown_method(host, fingerprint):
-    request = Request(host, method='ABCDEFG')
+def unknown_method(host, host_index, fingerprint):
+    request = Request(host, host_index, method='ABCDEFG')
     response = request.submit
-    get_characteristics('unknown_method', response, fingerprint, host)
+    get_characteristics('unknown_method', response, fingerprint, host, host_index)
 
 
-def unauthorized_activity(host, fingerprint):
+def unauthorized_activity(host, host_index, fingerprint):
     activities = ('OPTIONS', 'TRACE', 'GET', 'HEAD', 'DELETE',
                   'PUT', 'POST', 'COPY', 'MOVE', 'MKCOL',
                   'PROPFIND', 'PROPPATCH', 'LOCK', 'UNLOCK',
                   'SEARCH')
 
     for activity in activities:
-        request = Request(host, method=activity)
+        request = Request(host, host_index, method=activity)
         response = request.submit
-        get_characteristics('unauthorized_activity_' + activity, response, fingerprint, host)
+        get_characteristics('unauthorized_activity_' + activity, response, fingerprint, host, host_index)
 
 
-def empty_uri(host, fingerprint):
-    request = Request(host, local_uri='/ABCDEFG')
+def empty_uri(host, host_index, fingerprint):
+    request = Request(host, host_index, local_uri='/ABCDEFG')
     response = request.submit
-    get_characteristics('empty_uri', response, fingerprint, host)
+    get_characteristics('empty_uri', response, fingerprint, host, host_index)
 
 
-def malformed_method(host, fingerprint):
+def malformed_method(host, host_index, fingerprint):
     malformed_methods = get_malformed_methods()
 
     for index, method in enumerate(malformed_methods):
-        request = Request(host)
+        request = Request(host, host_index)
         request.method_line = method
         response = request.submit
-        get_characteristics('MALFORMED_' + ('000' + str(index))[-3:], response, fingerprint, host)
+        get_characteristics('MALFORMED_' + ('000' + str(index))[-3:], response, fingerprint, host, host_index)
 
 
 def get_malformed_methods():
@@ -406,22 +433,22 @@ def get_malformed_methods():
     return malformed_methods_list
 
 
-def unavailable_accept(host, fingerprint):
-    request = Request(host)
+def unavailable_accept(host, host_index, fingerprint):
+    request = Request(host, host_index)
     request.add_header('Accept', 'abcd/efgh')
     response = request.submit
-    get_characteristics('unavailable_accept', response, fingerprint, host)
+    get_characteristics('unavailable_accept', response, fingerprint, host, host_index)
 
 
-def long_content_length(host, fingerprint):
-    request = Request(host)
+def long_content_length(host, host_index, fingerprint):
+    request = Request(host, host_index)
     request.add_header('Content-Length', str(sys.maxint))
     request.body = 'abcdefgh'
     response = request.submit
-    get_characteristics('long_content_length', response, fingerprint, host)
+    get_characteristics('long_content_length', response, fingerprint, host, host_index)
 
 
-def get_fingerprint(host):
+def get_fingerprint(host, host_index, blacklist):
     fingerprint = {
         LEXICAL: {},
         SYNTACTIC: {},
@@ -432,13 +459,18 @@ def get_fingerprint(host):
                            malformed_method, unavailable_accept, long_content_length]
 
     for method in fingerprint_methods:
-        logger.debug("processing %s", method.__name__, extra={'logname': host})
+        # logger.debug("processing %s", method.__name__, extra={'logname': host, 'host_index': host_index, 'host_total': HOST_TOTAL})
 
         try:
-            method(host, fingerprint)
+            method(host, host_index, fingerprint)
         except ValueError as e:
-            logger.warning("%s", e, extra={'logname': host})
-            break
+            logger.warning("%s", e, extra={'logname': host, 'host_index': host_index, 'host_total': HOST_TOTAL})
+
+            if method == default_get:
+                print "BLACKLISTING"
+                update_blacklist(blacklist, host, host_index)
+                break
+
 
 
     return fingerprint
@@ -457,7 +489,7 @@ def save_fingerprint(args, fingerprint, host):
     pprint.PrettyPrinter(stream=f_url).pprint(fingerprint)
     f_url.close()
 
-    # logger.debug("saved output to %s", f, extra={'logname': host})
+    # logger.debug("saved output to %s", f, extra={'logname': host, 'host_index': host_index, 'host_total': HOST_TOTAL})
 
 
 def get_known_fingerprints(args):
@@ -631,7 +663,7 @@ def print_scores(hostname, scores):
 
 
 def print_fingerprint(fingerprint, host):
-    # logger.debug("output:", extra={'logname': host})
+    # logger.debug("output:", extra={'logname': host, 'host_index': host_index, 'host_total': HOST_TOTAL})
     pp = pprint.PrettyPrinter(indent=4)
     pp.pprint(fingerprint)
 
@@ -711,8 +743,21 @@ def get_hosts(args):
     return hosts
 
 
-def process_host(args, host, known_fingerprints):
-    f = get_fingerprint(host)
+def open_blacklist_file(blacklist_file):
+    return open(blacklist_file, 'rw+')
+
+
+def update_blacklist(blacklist_handler, host, host_index):
+    blacklist_handler.write(host + '\n')
+    logger.info('host added to blacklist', extra={'logname': host, 'host_index': host_index, 'host_total': HOST_TOTAL})
+
+
+def close_blacklist_file(blacklist_handler):
+    blacklist_handler.close()
+
+
+def process_host(args, host, host_index, known_fingerprints, blacklist):
+    f = get_fingerprint(host, host_index, blacklist)
 
     save_fingerprint(args, f, host)
 
@@ -724,31 +769,48 @@ def process_host(args, host, known_fingerprints):
         print_scores(host, scores)
 
 
-def process_hosts(args, hosts, known_fingerprints):
+def process_hosts(args, hosts, known_fingerprints, blacklist):
     # from gevent.pool import Pool
     # WORKERS = 100
     #
     # pool = Pool(WORKERS)
     # for index, host in enumerate(hosts):
     #     try:
-    #         logger.info("processing host (%s/%s)", index + 1, len(hosts), extra={'logname': host})
+    #         logger.info("processing host (%s/%s)", index + 1, len(hosts), extra={'logname': host, 'host_index': host_index, 'host_total': HOST_TOTAL})
     #         pool.spawn(process_host, args, host, known_fingerprints)
     #     except ValueError as e:
-    #         logger.error(e, extra={'logname': host})
+    #         logger.error(e, extra={'logname': host, 'host_index': host_index, 'host_total': HOST_TOTAL})
     #
     # pool.join()
+    global HOST_TOTAL
 
-    for index, host in enumerate(hosts):
+    blacklist_hosts = blacklist.readlines()
+
+    HOST_TOTAL = len(hosts)
+
+    for host_index, host in enumerate(hosts):
         try:
-            # TODO remove cache check here
-            # d = CACHE + '/' + host + '.' + str(80)
-            # if not os.path.isdir(d):
-            #     logger.info("File does not exist, skip it", extra={'logname': host})
-            #     continue
-            logger.info("processing host (%s/%s)", index, len(hosts), extra={'logname': host})
-            process_host(args, host, known_fingerprints)
+            host_index += 1
+            logger.info("processing host (%s/%s)", host_index, len(hosts), extra={'logname': host, 'host_index': host_index, 'host_total': HOST_TOTAL})
+
+
+            if host + '\n' not in blacklist_hosts:
+                process_host(args, host, host_index, known_fingerprints, blacklist)
+            else:
+                logger.error('host is blacklisted', extra={'logname': host, 'host_index': host_index, 'host_total': HOST_TOTAL})
         except ValueError as e:
-            logger.error(e, extra={'logname': host})
+            logger.error(e, extra={'logname': host, 'host_index': host_index, 'host_total': HOST_TOTAL})
+
+
+def extract_banner_from_requests(requests):
+    banner = ''
+    for request, response in requests.iteritems():
+        if not banner:
+            banner = next((header for header in response.headers if "Server" in header), '')
+        else:
+            break
+
+    return banner
 
 
 def csv_exporter(dict):
@@ -761,6 +823,10 @@ def csv_exporter(dict):
 
     for host, requests in dict.iteritems():
         top.append(host)
+
+        response_banner_key = 'BANNER_REPORTED'
+        response_banner_value = extract_banner_from_requests(requests)
+        results = update_csv_results(response_banner_key, response_banner_value, results)
 
         for request, response in requests.iteritems():
             response_code_key = request.rstrip() + ' RESPONSE_CODE'
@@ -779,32 +845,41 @@ def csv_exporter(dict):
     if CSV_VERBOSE:
         writer.writerow(top)
     else:
-        writer.writerow(['method', 'unique responses'])
+        writer.writerow(['method', 'count', 'unique responses'])
 
     results_sorted = []
 
     for request, responses in results.iteritems():
-        unique_values = len(set(responses))
+        unique_values = list(set(responses))
+
+        set(responses)
 
         # Padding for correct placement of unique value counter
-        while len(responses) < number_of_columns - 2:
-            responses.append('')
+        # while len(responses) < number_of_columns - 2:
+        #     responses.append('')
 
-        responses.insert(0, request.rstrip())
-        responses.append(unique_values)
+        row = [request.rstrip()]
+        row.append(len(unique_values))
+        row.extend(unique_values)
 
-        results_sorted.append(responses)
+        # responses[0] = request.rstrip()
+        # responses.append(request.rstrip())
+        # responses.append(len(unique_values))
+        # responses.extend(unique_values)
+
+        # results_sorted.append(responses)
+        results_sorted.append(row)
 
         # writer.writerow(responses)
 
-    res = sorted(results_sorted, key=itemgetter(number_of_columns - 1), reverse=True)
+    res = sorted(results_sorted, key=itemgetter(1), reverse=True)
 
     for row in res:
         if CSV_VERBOSE:
             writer.writerow(row)
         else:
-            row_short = [row[0], row[-1]]
-            writer.writerow(row_short)
+            # row_short = [row[0], row[-1]]
+            writer.writerow(row)
 
     f.close()
 
@@ -828,14 +903,17 @@ if __name__ == '__main__':
 
     hosts = get_hosts(args)
 
-    hosts = hosts[-500:]
+    blacklist = open_blacklist_file(BLACKLIST)
+
+    hosts = hosts[-1000:]
 
     known_fingerprints = get_known_fingerprints(args)
 
-    process_hosts(args, hosts, known_fingerprints)
+    process_hosts(args, hosts, known_fingerprints, blacklist)
 
     csv_exporter(csv_export)
-    pass
+
+    close_blacklist_file(blacklist)
 
     # TODO
     # - compare against predefined footprints
