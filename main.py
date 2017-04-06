@@ -126,7 +126,7 @@ class Request:
         if os.path.isdir(d):
             try:
                 if os.path.exists(f):
-                    # logger.debug("using cached response %s", f, extra={'logname': host, 'host_index': self.host_index, 'host_total': HOST_TOTAL})
+                    logger.debug("using cached response %s", f, extra={'logname': host, 'host_index': self.host_index, 'host_total': HOST_TOTAL})
                     f_url = open(f, 'rb')
                     response = pickle.load(f_url)
                     f_url.close()
@@ -136,7 +136,7 @@ class Request:
 
                     return response
                 else:
-                    # logger.warning("no cache file for %s", f, extra={'logname': host, 'host_index': host_index, 'host_total': HOST_TOTAL + ':' + str(port)})
+                    logger.warning("no cache file for %s", f, extra={'logname': host, 'host_index': self.host_index, 'host_total': HOST_TOTAL})
                     CACHE_RESPONSE = True
             except EOFError:
                 logger.error("corrupt cached response %s, removing it", f, extra={'logname': host, 'host_index': self.host_index, 'host_total': HOST_TOTAL})
@@ -150,15 +150,15 @@ class Request:
 
         while attempt < MAX_ATTEMPT:
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            s.settimeout(1)
+            s.settimeout(5)
 
             try:
-                # logger.info("sending request %s", str(self), extra={'logname': host, 'host_index': self.host_index, 'host_total': HOST_TOTAL})
+                logger.info("sending request \n%4s%s", ' ', str(self).rstrip(), extra={'logname': host, 'host_index': self.host_index, 'host_total': HOST_TOTAL})
                 s.connect((host, port))
                 s.settimeout(None)
-                s.send(str(self))
+                s.sendall(str(self))
             except(socket.error, RuntimeError, Exception) as e:
-                self.store_cache_response(str(e), f, host, self_hex)
+                #self.store_cache_response(str(e), f, host, self_hex)
                 raise ValueError(e)
 
             data = ''
@@ -716,13 +716,14 @@ def parse_arguments():
         '-v', '--verbose',
         help="show verbose statements",
         action="store_const", dest="loglevel", const=logging.INFO,
+        default=logging.INFO
     )
 
     parser.add_argument(
         '-d', '--debug',
         help="show debugging statements",
         action="store_const", dest="loglevel", const=logging.DEBUG,
-        default=logging.WARNING
+        default=logging.INFO
     )
 
     return parser.parse_args()
@@ -744,7 +745,7 @@ def get_hosts(args):
 
 
 def open_blacklist_file(blacklist_file):
-    return open(blacklist_file, 'rw+')
+    return open(blacklist_file, 'a')
 
 
 def update_blacklist(blacklist_handler, host, host_index):
@@ -784,7 +785,8 @@ def process_hosts(args, hosts, known_fingerprints, blacklist):
     # pool.join()
     global HOST_TOTAL
 
-    blacklist_hosts = blacklist.readlines()
+    with open(BLACKLIST) as f:
+        blacklist_hosts = f.readlines()
 
     HOST_TOTAL = len(hosts)
 
@@ -905,7 +907,7 @@ if __name__ == '__main__':
 
     blacklist = open_blacklist_file(BLACKLIST)
 
-    hosts = hosts[-1000:]
+    hosts = hosts[-10:-1]
 
     known_fingerprints = get_known_fingerprints(args)
 
