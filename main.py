@@ -5,281 +5,18 @@
 # of the License at https://opensource.org/licenses/MIT#
 
 import argparse
-import csv
 import glob
-import hashlib
 import logging
-import os
-import pickle
 import pprint
-import re
-import select
-import socket
 import sys
-import time
-import urlparse
-from operator import itemgetter
 
-import datetime
+import variables
+from constants import NO_RESPONSE_CODE, DATA_NONE, LEXICAL, SEMANTIC, SYNTACTIC, DATA_LIST, BLACKLIST
+from export import csv_exporter
+from http import Request, UrlInfo
+from logger import setup_logger, LOGNAME_START
 
-EXCEPTION_COUNT_MAX = 3
-
-MAX_ATTEMPT = 3
-WAIT_TIME = 1
-
-# TODO only print output if yes
-PRINT_OUTPUT = 1
-
-NO_RESPONSE = 'NO_RESPONSE'
-NO_RESPONSE_CODE = 'NO_RESPONSE_CODE'
-NO_RESPONSE_TEXT = 'NONE'
-
-LEXICAL = 'LEXICAL'
-SYNTACTIC = 'SYNTACTIC'
-SEMANTIC = 'SEMANTIC'
-REQUESTS = 'REQUESTS'
-
-DATA_LIST = 'LIST'
-DATA_NONE = None
-
-CACHE = 'cache'
-BLACKLIST = 'blacklist'
-CSV = 'aaa_' + str(datetime.datetime.now()).replace(' ', '_')[:-7] + '.csv'
-CSV_VERBOSE = False
-
-HOST_TOTAL = 0
-
-RESET_SEQ = "\033[0m"
-COLOR_SEQ = "\033[1;%dm"
-BOLD_SEQ = "\033[1m"
-
-# FORMAT = '%(asctime)s - %(logname)s - %(levelname)7s - %(message)s'
-FORMAT = '%(asctime)s - ' + BOLD_SEQ + '%(logname)15s' + RESET_SEQ + \
-         ' [%(host_index)d/%(host_total)d] - %(levelname)7s - %(message)s'
-logging.basicConfig(stream=sys.stdout, format=FORMAT)
-logger = logging.getLogger('fingerprinter')
-
-d = {'host'}
-
-LOGNAME_START = {
-    'logname': 'setup',
-    'host_index': 0,
-    'host_total': 0
-}
-
-EXPORT_CSV = True
-csv_export = {}
-
-
-class UrlInfo:
-    def __init__(self, url):
-        url_parsed = urlparse.urlparse(url)
-
-        if url_parsed.scheme is '':
-            self.scheme = 'http'
-            self.host = url_parsed.path.split(':')[0]
-            self.port = 80 if url_parsed.path.find(':') is -1 else int(url_parsed.path.split(':')[1])
-        else:
-            self.scheme = url_parsed.scheme
-            self.host = url_parsed.netloc.split(':')[0]
-            self.port = 80 if url_parsed.netloc.find(':') is -1 else int(url_parsed.netloc.split(':')[1])
-
-
-class Request:
-    def __init__(self, url, host_index, method="GET", local_uri='/', version="1.0"):
-        self.url = url
-        self.host_index = host_index
-        self.method = method
-        self.local_uri = local_uri
-        self.version = version
-        self.headers = [
-            ['User-Agent', 'Fingerprinter/1.0']
-        ]
-        self.body = ''
-        self.line_join = '\r\n'
-        self.method_line = ''
-
-    def __str__(self):
-        method_line = self.method_line
-        if not method_line:
-            method_line = '%s %s HTTP/%s' % (self.method, self.local_uri, self.version)
-
-        return self.line_join.join([method_line] + self.create_headers_string()) + (2 * self.line_join) + self.body
-
-    def create_headers_string(self):
-        return ['%s: %s' % (key, value) for key, value in self.headers]
-
-    def add_header(self, key, value):
-        self.headers.append([key, value])
-
-    @property
-    def submit(self):
-        CACHE_RESPONSE = False
-
-        url_info = UrlInfo(self.url)
-        host = url_info.host
-        port = url_info.port
-
-        self_hex = hashlib.md5(str(self)).hexdigest()
-        d = CACHE + '/' + host + '.' + str(port)
-        f = d + '/' + self_hex
-        if os.path.isdir(d):
-            try:
-                if os.path.exists(f):
-                    logger.debug("using cached response %s", f, extra={'logname': host, 'host_index': self.host_index, 'host_total': HOST_TOTAL})
-                    f_url = open(f, 'rb')
-                    response = pickle.load(f_url)
-                    f_url.close()
-
-                    if EXPORT_CSV:
-                        add_request_response(self, response, url_info)
-
-                    return response
-                else:
-                    logger.warning("no cache file for %s", f, extra={'logname': host, 'host_index': self.host_index, 'host_total': HOST_TOTAL})
-                    CACHE_RESPONSE = True
-            except EOFError:
-                logger.error("corrupt cached response %s, removing it", f, extra={'logname': host, 'host_index': self.host_index, 'host_total': HOST_TOTAL})
-                os.remove(f)
-        else:
-            os.makedirs(d)
-            CACHE_RESPONSE = True
-
-        attempt = 0
-        data = ''
-
-        while attempt < MAX_ATTEMPT:
-            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            s.settimeout(5)
-
-            try:
-                logger.info("sending request \n%4s%s", ' ', str(self).rstrip(), extra={'logname': host, 'host_index': self.host_index, 'host_total': HOST_TOTAL})
-                s.connect((host, port))
-                s.settimeout(None)
-                s.sendall(str(self))
-            except(socket.error, RuntimeError, Exception) as e:
-                #self.store_cache_response(str(e), f, host, self_hex)
-                raise ValueError(e)
-
-            data = ''
-
-            try:
-                while 1:
-                    # Only proceed if feedback is received
-                    ss = select.select([s], [], [], 1)[0]
-                    if not ss:
-                        break
-
-                    # Assign the temporary socket pointer to the first socket in the list
-                    ss = ss[0]
-
-                    # Store the response for processing if present
-                    temp = ss.recv(1024)
-                    if not temp:
-                        break
-
-                    data += temp
-                s.close()
-            except(socket.error, RuntimeError, Exception):
-                attempt += 1
-                time.sleep(WAIT_TIME)
-                s.close()
-                continue
-            break
-
-        if CACHE_RESPONSE:
-            self.store_cache_response(data, f, host, self_hex)
-
-        response = Response(data)
-
-        if EXPORT_CSV:
-            add_request_response(self, response, url_info)
-
-        return response
-
-    def store_cache_response(self, data, f, host, self_hex):
-        logger.debug("caching response to %s", self_hex,
-                     extra={'logname': host, 'host_index': self.host_index, 'host_total': HOST_TOTAL})
-
-        f_url = open(f, 'wb')
-        pickle.dump(Response(data), f_url, protocol=pickle.HIGHEST_PROTOCOL)
-        f_url.close()
-
-
-class Response:
-    def __init__(self, raw_data):
-        # TODO takes memory, maybe deprecate
-        self.raw_data = raw_data
-        self.headers = []
-        self.body = ''
-        self.__parse(raw_data)
-
-    def __parse(self, data):
-        if not data:
-            self.response_code = NO_RESPONSE_CODE
-            self.response_text = NO_RESPONSE_TEXT
-            return
-
-        if not re.search('HTTP/1\.[01] [0-9]{3} [A-Z]{,10}', data):
-            self.response_code = NO_RESPONSE_CODE
-            self.response_text = NO_RESPONSE_TEXT
-            self.body = data
-            return
-
-        crlf_index = data.find('\r\n')
-        cr_index = data.find('\r')
-        line_split = '\r\n'
-
-        if crlf_index == -1 or cr_index < crlf_index:
-            line_split = '\n'
-
-        # Obtain all headers
-        response_lines = data.split(line_split)
-
-        # Split first header into code and text
-        self.response_line = response_lines[0]
-        response_line_match = re.search('(HTTP/1\.[01]) ([0-9]{3}) ([^\r\n]*)', data)
-        self.response_code, self.response_text = response_line_match.groups()[1:]
-
-        # Obtain body after first empty line
-        blank_index = response_lines[:].index('')
-        if blank_index == -1:
-            blank_index = len(response_lines)
-
-        self.headers = response_lines[1:blank_index]
-        self.body = response_lines[blank_index:]
-
-    def has_header(self, name):
-        for h in self.headers:
-            if h.startswith(name):
-                return 1
-        return 0
-
-    def header_data(self, name):
-        assert (self.has_header(name))
-        for h in self.headers:
-            if h.startswith(name):
-                return h.split(': ', 1)[-1]
-
-    def header_names(self):
-        result = []
-        for h in self.headers:
-            name = h.split(':', 1)[0]
-            result.append(name)
-        return result
-
-    def return_code(self):
-        return self.response_code, self.response_text
-
-    def server_name(self):
-        if not self.has_header('Server'):
-            return None
-        # This cuts off any possible modules but also anything else
-        s = self.header_data('Server').split()
-        if len(s) > 1:
-            return s[0]
-        else:
-            return s
+logger = setup_logger()
 
 
 def add_characteristic(category, name, value, fingerprint, data_type=DATA_NONE):
@@ -294,17 +31,8 @@ def add_characteristic(category, name, value, fingerprint, data_type=DATA_NONE):
         return
 
 
-def add_request_response(request, response, url_info):
-    host = url_info.host + ':' + str(url_info.port)
-
-    if not csv_export.has_key(host):
-        csv_export[host] = {}
-
-    csv_export[host][str(request)] = response
-
-
-def get_characteristics(test_name, response, fingerprint, host, host_index):
-    # logger.debug("applying %s", test_name, extra={'logname': host, 'host_index': host_index, 'host_total': HOST_TOTAL})
+def get_characteristics(test_name, response, fingerprint, host, host_index, NO_RESPONSE=None):
+    # logger.debug("applying %s", test_name, extra={'logname': host, 'host_index': host_index, 'host_total': variables.host_total})
 
     response_code, response_text = response.return_code()
     server_name_claimed = response.server_name()
@@ -459,19 +187,18 @@ def get_fingerprint(host, host_index, blacklist):
                            malformed_method, unavailable_accept, long_content_length]
 
     for method in fingerprint_methods:
-        # logger.debug("processing %s", method.__name__, extra={'logname': host, 'host_index': host_index, 'host_total': HOST_TOTAL})
+        # logger.debug("processing %s", method.__name__, extra={'logname': host, 'host_index': host_index, 'host_total': variables.host_total})
 
         try:
             method(host, host_index, fingerprint)
         except ValueError as e:
-            logger.warning("%s", e, extra={'logname': host, 'host_index': host_index, 'host_total': HOST_TOTAL})
+            logger.warning("%s", e,
+                           extra={'logname': host, 'host_index': host_index, 'host_total': variables.host_total})
 
             if method == default_get:
                 print "BLACKLISTING"
                 update_blacklist(blacklist, host, host_index)
                 break
-
-
 
     return fingerprint
 
@@ -489,7 +216,7 @@ def save_fingerprint(args, fingerprint, host):
     pprint.PrettyPrinter(stream=f_url).pprint(fingerprint)
     f_url.close()
 
-    # logger.debug("saved output to %s", f, extra={'logname': host, 'host_index': host_index, 'host_total': HOST_TOTAL})
+    # logger.debug("saved output to %s", f, extra={'logname': host, 'host_index': host_index, 'host_total': variables.host_total})
 
 
 def get_known_fingerprints(args):
@@ -663,7 +390,7 @@ def print_scores(hostname, scores):
 
 
 def print_fingerprint(fingerprint, host):
-    # logger.debug("output:", extra={'logname': host, 'host_index': host_index, 'host_total': HOST_TOTAL})
+    # logger.debug("output:", extra={'logname': host, 'host_index': host_index, 'host_total': variables.host_total})
     pp = pprint.PrettyPrinter(indent=4)
     pp.pprint(fingerprint)
 
@@ -729,11 +456,6 @@ def parse_arguments():
     return parser.parse_args()
 
 
-def start_logger(args):
-    logger.setLevel(args.loglevel)
-    logger.info('starting session', extra=LOGNAME_START)
-
-
 def get_hosts(args):
     hosts = []
     if args.input is not None:
@@ -750,7 +472,8 @@ def open_blacklist_file(blacklist_file):
 
 def update_blacklist(blacklist_handler, host, host_index):
     blacklist_handler.write(host + '\n')
-    logger.info('host added to blacklist', extra={'logname': host, 'host_index': host_index, 'host_total': HOST_TOTAL})
+    logger.info('host added to blacklist',
+                extra={'logname': host, 'host_index': host_index, 'host_total': variables.host_total})
 
 
 def close_blacklist_file(blacklist_handler):
@@ -771,149 +494,44 @@ def process_host(args, host, host_index, known_fingerprints, blacklist):
 
 
 def process_hosts(args, hosts, known_fingerprints, blacklist):
-    # from gevent.pool import Pool
-    # WORKERS = 100
-    #
-    # pool = Pool(WORKERS)
-    # for index, host in enumerate(hosts):
-    #     try:
-    #         logger.info("processing host (%s/%s)", index + 1, len(hosts), extra={'logname': host, 'host_index': host_index, 'host_total': HOST_TOTAL})
-    #         pool.spawn(process_host, args, host, known_fingerprints)
-    #     except ValueError as e:
-    #         logger.error(e, extra={'logname': host, 'host_index': host_index, 'host_total': HOST_TOTAL})
-    #
-    # pool.join()
-    global HOST_TOTAL
-
     with open(BLACKLIST) as f:
         blacklist_hosts = f.readlines()
 
-    HOST_TOTAL = len(hosts)
+    variables.host_total = len(hosts)
 
     for host_index, host in enumerate(hosts):
         try:
             host_index += 1
-            logger.info("processing host (%s/%s)", host_index, len(hosts), extra={'logname': host, 'host_index': host_index, 'host_total': HOST_TOTAL})
-
+            logger.info("processing host (%s/%s)", host_index, len(hosts),
+                        extra={'logname': host, 'host_index': host_index, 'host_total': variables.host_total})
 
             if host + '\n' not in blacklist_hosts:
                 process_host(args, host, host_index, known_fingerprints, blacklist)
             else:
-                logger.error('host is blacklisted', extra={'logname': host, 'host_index': host_index, 'host_total': HOST_TOTAL})
+                logger.error('host is blacklisted',
+                             extra={'logname': host, 'host_index': host_index, 'host_total': variables.host_total})
         except ValueError as e:
-            logger.error(e, extra={'logname': host, 'host_index': host_index, 'host_total': HOST_TOTAL})
-
-
-def extract_banner_from_requests(requests):
-    banner = ''
-    for request, response in requests.iteritems():
-        if not banner:
-            banner = next((header for header in response.headers if "Server" in header), '')
-        else:
-            break
-
-    return banner
-
-
-def csv_exporter(dict):
-    f = open(CSV, 'w+')
-    writer = csv.writer(f, delimiter=',', quotechar='"', quoting=csv.QUOTE_ALL)
-
-    top = ['method']
-
-    results = {}
-
-    for host, requests in dict.iteritems():
-        top.append(host)
-
-        response_banner_key = 'BANNER_REPORTED'
-        response_banner_value = extract_banner_from_requests(requests)
-        results = update_csv_results(response_banner_key, response_banner_value, results)
-
-        for request, response in requests.iteritems():
-            response_code_key = request.rstrip() + ' RESPONSE_CODE'
-            response_code_variable = response.response_code
-            results = update_csv_results(response_code_key, response_code_variable, results)
-
-            response_text_key = request.rstrip() + ' RESPONSE_TEXT ' + response.response_code
-            response_text_variable = response.response_text
-            results = update_csv_results(response_text_key, response_text_variable, results)
-        pass
-
-    top.append('unique values')
-
-    number_of_columns = len(top)
-
-    if CSV_VERBOSE:
-        writer.writerow(top)
-    else:
-        writer.writerow(['method', 'count', 'unique responses'])
-
-    results_sorted = []
-
-    for request, responses in results.iteritems():
-        unique_values = list(set(responses))
-
-        set(responses)
-
-        # Padding for correct placement of unique value counter
-        # while len(responses) < number_of_columns - 2:
-        #     responses.append('')
-
-        row = [request.rstrip()]
-        row.append(len(unique_values))
-        row.extend(unique_values)
-
-        # responses[0] = request.rstrip()
-        # responses.append(request.rstrip())
-        # responses.append(len(unique_values))
-        # responses.extend(unique_values)
-
-        # results_sorted.append(responses)
-        results_sorted.append(row)
-
-        # writer.writerow(responses)
-
-    res = sorted(results_sorted, key=itemgetter(1), reverse=True)
-
-    for row in res:
-        if CSV_VERBOSE:
-            writer.writerow(row)
-        else:
-            # row_short = [row[0], row[-1]]
-            writer.writerow(row)
-
-    f.close()
-
-
-def update_csv_results(key, value, results):
-    if not results.has_key(key):
-        results[key] = []
-
-    results[key].append(value)
-    return results
+            logger.error(e, extra={'logname': host, 'host_index': host_index, 'host_total': variables.host_total})
 
 
 if __name__ == '__main__':
+    variables.init()
+
     args = parse_arguments()
 
-    # TODO debug
-    # args.gather = True
-    # args.loglevel = logging.INFO
-
-    start_logger(args)
+    logger = setup_logger(args)
 
     hosts = get_hosts(args)
 
     blacklist = open_blacklist_file(BLACKLIST)
 
-    hosts = hosts[-10:-1]
+    hosts = hosts[-9:-8]
 
     known_fingerprints = get_known_fingerprints(args)
 
     process_hosts(args, hosts, known_fingerprints, blacklist)
 
-    csv_exporter(csv_export)
+    csv_exporter()
 
     close_blacklist_file(blacklist)
 

@@ -4,7 +4,7 @@
 # use this file except in compliance with the License. You may obtain a copy
 # of the License at https://opensource.org/licenses/MIT#
 
-import requests
+import http
 import gevent.monkey
 from gevent.pool import Pool
 
@@ -32,7 +32,7 @@ def check_urls(urls):
     global output
 
     def fetch(url):
-        response = requests.request('GET', 'http://' + url, timeout=5.0)
+        response = http.request('GET', 'http://' + url, timeout=5.0)
         # TODO server version check
         # regex with /num oid
         # TODO replace string with struct (save on disk space)
