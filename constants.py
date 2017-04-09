@@ -9,10 +9,11 @@ import datetime
 # file and directory names
 CACHE = 'cache'
 BLACKLIST = 'blacklist'
-CSV = 'aaa_' + str(datetime.datetime.now()).replace(' ', '_')[:-7] + '.csv'
+# CSV = 'aaa_' + str(datetime.datetime.now()).replace(' ', '_')[:-7] + '.csv'
+CSV = 'aaa.csv'
 
 # failure handler times
-PAUSE_TIME_AFTER_TIMEOUT = 5
+PAUSE_TIME_AFTER_TIMEOUT = 1
 MAX_ATTEMPTS_PER_HOST = 3
 
 # logger formatting
@@ -41,5 +42,5 @@ DATA_NONE = None
 
 # TODO make verbose a possibility again
 # TODO make part of arguments list
-CSV_VERBOSE = False
+CSV_VERBOSE = True
 EXPORT_CSV = True

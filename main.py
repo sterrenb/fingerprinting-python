@@ -4,17 +4,16 @@
 # use this file except in compliance with the License. You may obtain a copy
 # of the License at https://opensource.org/licenses/MIT#
 
-import argparse
 import glob
-import logging
-import pprint
 import sys
 
 import variables
+from arguments import parse_arguments
+from blacklist import Blacklist
 from constants import NO_RESPONSE_CODE, DATA_NONE, LEXICAL, SEMANTIC, SYNTACTIC, DATA_LIST, BLACKLIST
-from export import csv_exporter
 from http import Request, UrlInfo
 from logger import setup_logger, LOGNAME_START
+from storage import store_fingerprint
 
 logger = setup_logger()
 
@@ -73,19 +72,23 @@ def get_characteristics(test_name, response, fingerprint, host, host_index, NO_R
 
 
 def default_get(host, host_index, fingerprint):
-    request = Request(host, host_index)
+    request = Request(host, host_index, logger)
     response = request.submit
-    get_characteristics('default_get', response, fingerprint, host, host_index)
+
+    if response.response_code == NO_RESPONSE_CODE:
+        raise ValueError('default_get failed')
+    else:
+        get_characteristics('default_get', response, fingerprint, host, host_index)
 
 
 def default_options(host, host_index, fingerprint):
-    request = Request(host, host_index, method='OPTIONS')
+    request = Request(host, host_index, logger, method='OPTIONS')
     response = request.submit
     get_characteristics('default_options', response, fingerprint, host, host_index)
 
 
 def unknown_method(host, host_index, fingerprint):
-    request = Request(host, host_index, method='ABCDEFG')
+    request = Request(host, host_index, logger, method='ABCDEFG')
     response = request.submit
     get_characteristics('unknown_method', response, fingerprint, host, host_index)
 
@@ -97,13 +100,13 @@ def unauthorized_activity(host, host_index, fingerprint):
                   'SEARCH')
 
     for activity in activities:
-        request = Request(host, host_index, method=activity)
+        request = Request(host, host_index, logger, method=activity)
         response = request.submit
         get_characteristics('unauthorized_activity_' + activity, response, fingerprint, host, host_index)
 
 
 def empty_uri(host, host_index, fingerprint):
-    request = Request(host, host_index, local_uri='/ABCDEFG')
+    request = Request(host, host_index, logger, local_uri='/ABCDEFG')
     response = request.submit
     get_characteristics('empty_uri', response, fingerprint, host, host_index)
 
@@ -112,7 +115,7 @@ def malformed_method(host, host_index, fingerprint):
     malformed_methods = get_malformed_methods()
 
     for index, method in enumerate(malformed_methods):
-        request = Request(host, host_index)
+        request = Request(host, host_index, logger)
         request.method_line = method
         response = request.submit
         get_characteristics('MALFORMED_' + ('000' + str(index))[-3:], response, fingerprint, host, host_index)
@@ -162,14 +165,14 @@ def get_malformed_methods():
 
 
 def unavailable_accept(host, host_index, fingerprint):
-    request = Request(host, host_index)
+    request = Request(host, host_index, logger)
     request.add_header('Accept', 'abcd/efgh')
     response = request.submit
     get_characteristics('unavailable_accept', response, fingerprint, host, host_index)
 
 
 def long_content_length(host, host_index, fingerprint):
-    request = Request(host, host_index)
+    request = Request(host, host_index, logger)
     request.add_header('Content-Length', str(sys.maxint))
     request.body = 'abcdefgh'
     response = request.submit
@@ -190,33 +193,20 @@ def get_fingerprint(host, host_index, blacklist):
         # logger.debug("processing %s", method.__name__, extra={'logname': host, 'host_index': host_index, 'host_total': variables.host_total})
 
         try:
+            logger.debug('applying method %s', method.__name__,
+                        extra={'logname': host, 'host_index': host_index, 'host_total': variables.host_total})
             method(host, host_index, fingerprint)
         except ValueError as e:
             logger.warning("%s", e,
                            extra={'logname': host, 'host_index': host_index, 'host_total': variables.host_total})
 
             if method == default_get:
-                print "BLACKLISTING"
-                update_blacklist(blacklist, host, host_index)
+                blacklist.insert(host)
+                logger.info('host added to blacklist',
+                            extra={'logname': host, 'host_index': host_index, 'host_total': variables.host_total})
                 break
 
     return fingerprint
-
-
-def save_fingerprint(args, fingerprint, host):
-    url_info = UrlInfo(host)
-
-    # TODO check for file existence and maybe skip querying if found
-    d = args.output
-
-    if d[-1:] != '/':
-        d += '/'
-    f = d + url_info.host + '.' + str(url_info.port)
-    f_url = open(f, 'w+')
-    pprint.PrettyPrinter(stream=f_url).pprint(fingerprint)
-    f_url.close()
-
-    # logger.debug("saved output to %s", f, extra={'logname': host, 'host_index': host_index, 'host_total': variables.host_total})
 
 
 def get_known_fingerprints(args):
@@ -389,73 +379,6 @@ def print_scores(hostname, scores):
     print lint
 
 
-def print_fingerprint(fingerprint, host):
-    # logger.debug("output:", extra={'logname': host, 'host_index': host_index, 'host_total': variables.host_total})
-    pp = pprint.PrettyPrinter(indent=4)
-    pp.pprint(fingerprint)
-
-
-def parse_arguments():
-    parser = argparse.ArgumentParser(
-        description='Fingerprint web servers and store them',
-        formatter_class=lambda prog: argparse.HelpFormatter(prog, max_help_position=30)
-    )
-
-    group = parser.add_mutually_exclusive_group(required=True)
-
-    group.add_argument(
-        '-i', '--input',
-        help='hostname or IP address',
-        dest='input'
-    )
-    group.add_argument(
-        '-f', '--file',
-        help='file with line separated hostnames or IP addresses',
-        type=argparse.FileType('r'),
-        dest='file'
-    )
-
-    parser.add_argument(
-        '-s', '--save',
-        help="directory where output fingerprints are stored",
-        dest='output', default='output/'
-    )
-
-    parser.add_argument(
-        '-k', '--known',
-        help="directory where known fingerprints are stored",
-        dest='known', default='known/'
-    )
-
-    parser.add_argument(
-        '-g', '--gather',
-        help="only gather data (omit comparing results)",
-        action='store_true', default=False
-    )
-
-    parser.add_argument(
-        '-l', '--lazy',
-        help="trust server banners and omit other results if possible",
-        action='store_true', default=False
-    )
-
-    parser.add_argument(
-        '-v', '--verbose',
-        help="show verbose statements",
-        action="store_const", dest="loglevel", const=logging.INFO,
-        default=logging.INFO
-    )
-
-    parser.add_argument(
-        '-d', '--debug',
-        help="show debugging statements",
-        action="store_const", dest="loglevel", const=logging.DEBUG,
-        default=logging.INFO
-    )
-
-    return parser.parse_args()
-
-
 def get_hosts(args):
     hosts = []
     if args.input is not None:
@@ -466,24 +389,10 @@ def get_hosts(args):
     return hosts
 
 
-def open_blacklist_file(blacklist_file):
-    return open(blacklist_file, 'a')
-
-
-def update_blacklist(blacklist_handler, host, host_index):
-    blacklist_handler.write(host + '\n')
-    logger.info('host added to blacklist',
-                extra={'logname': host, 'host_index': host_index, 'host_total': variables.host_total})
-
-
-def close_blacklist_file(blacklist_handler):
-    blacklist_handler.close()
-
-
 def process_host(args, host, host_index, known_fingerprints, blacklist):
     f = get_fingerprint(host, host_index, blacklist)
 
-    save_fingerprint(args, f, host)
+    store_fingerprint(args, f, UrlInfo(host))
 
     if args.gather is False:
         scores = get_fingerprint_scores(args, f, known_fingerprints)
@@ -494,10 +403,7 @@ def process_host(args, host, host_index, known_fingerprints, blacklist):
 
 
 def process_hosts(args, hosts, known_fingerprints, blacklist):
-    with open(BLACKLIST) as f:
-        blacklist_hosts = f.readlines()
-
-    variables.host_total = len(hosts)
+    blacklist_hosts = blacklist.get_hosts()
 
     for host_index, host in enumerate(hosts):
         try:
@@ -505,10 +411,10 @@ def process_hosts(args, hosts, known_fingerprints, blacklist):
             logger.info("processing host (%s/%s)", host_index, len(hosts),
                         extra={'logname': host, 'host_index': host_index, 'host_total': variables.host_total})
 
-            if host + '\n' not in blacklist_hosts:
+            if host not in blacklist_hosts:
                 process_host(args, host, host_index, known_fingerprints, blacklist)
             else:
-                logger.error('host is blacklisted',
+                logger.warning('host is blacklisted',
                              extra={'logname': host, 'host_index': host_index, 'host_total': variables.host_total})
         except ValueError as e:
             logger.error(e, extra={'logname': host, 'host_index': host_index, 'host_total': variables.host_total})
@@ -523,19 +429,19 @@ if __name__ == '__main__':
 
     hosts = get_hosts(args)
 
-    blacklist = open_blacklist_file(BLACKLIST)
+    blacklist = Blacklist()
 
-    hosts = hosts[-9:-8]
+    # TODO debug
+    hosts = hosts[-50:]
+    # hosts.append(hosts[0])
+    # hosts.append('unreachable')
+
+
+    variables.host_total = len(hosts)
 
     known_fingerprints = get_known_fingerprints(args)
 
     process_hosts(args, hosts, known_fingerprints, blacklist)
 
-    csv_exporter()
-
-    close_blacklist_file(blacklist)
-
-    # TODO
-    # - compare against predefined footprints
-    # - check if hostname/port already exists in output file
-    # - create a counter per predefined footprin?
+    # csv_exporter()
+    Request.exporter.generate_output_file()

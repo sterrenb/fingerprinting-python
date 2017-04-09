@@ -3,6 +3,7 @@
 *.txt
 *.csv*
 *.bak
+blacklist
 old.py
 output/*
 !output/example.com.80

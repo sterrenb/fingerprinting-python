@@ -4,7 +4,9 @@
 # use this file except in compliance with the License. You may obtain a copy
 # of the License at https://opensource.org/licenses/MIT#
 
+import pprint
 
+# TODO deprecate
 def extract_banner_from_requests(requests):
     banner = ''
     for request, response in requests.iteritems():
@@ -14,3 +16,8 @@ def extract_banner_from_requests(requests):
             break
 
     return banner
+
+
+# def print_fingerprint(fingerprint):
+#     pp = pprint.PrettyPrinter(indent=4)
+#     pp.pprint(fingerprint)

@@ -7,18 +7,15 @@
 import re
 import socket
 import urlparse
-import logging
 import time
 import select
 
 import variables
-from export import add_request_response_to_csv
 from constants import EXPORT_CSV, NO_RESPONSE_CODE, NO_RESPONSE_TEXT, CACHE, PAUSE_TIME_AFTER_TIMEOUT, \
     MAX_ATTEMPTS_PER_HOST
+from export import Exporter
 from storage import store_cache_response, get_cache_response, remove_cache_file_for_request, \
     create_cache_directory_for_host
-
-logger = logging.getLogger('root')
 
 
 class UrlInfo:
@@ -36,9 +33,12 @@ class UrlInfo:
 
 
 class Request:
-    def __init__(self, url, host_index, method="GET", local_uri='/', version="1.0"):
+    exporter = Exporter()
+
+    def __init__(self, url, host_index, logger, method="GET", local_uri='/', version="1.0"):
         self.url = url
         self.host_index = host_index
+        self.logger = logger
         self.method = method
         self.local_uri = local_uri
         self.version = version
@@ -72,28 +72,25 @@ class Request:
             response = get_cache_response(self, host, port, url_info, self.host_index)
 
             if EXPORT_CSV:
-                add_request_response_to_csv(self, response, url_info)
+                Request.exporter.insert(self, response, url_info)
+                # add_request_response(self, response, url_info)
 
             return response
-        except ValueError as e:
-            logger.error("cache read error: %s", e.args,
-                         extra={'logname': host, 'host_index': self.host_index, 'host_total': variables.host_total})
+        except ValueError:
             remove_cache_file_for_request(self, host, port)
-        except IOError as e:
-            # logger.error("cache read error: %s", e.args,
-            #              extra={'logname': host, 'host_index': self.host_index, 'host_total': variables.host_total})
+        except IOError:
             create_cache_directory_for_host(host, port)
 
         attempt = 0
-        data = ''
-
         while attempt < MAX_ATTEMPTS_PER_HOST:
+            data = ''
+
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            s.settimeout(5)
+            s.settimeout(PAUSE_TIME_AFTER_TIMEOUT)
 
             try:
-                logger.info("sending request \n%4s%s", ' ', str(self).rstrip(),
-                            extra={'logname': host, 'host_index': self.host_index, 'host_total': variables.host_total})
+                # self.logger.info("sending request \n%4s%s", ' ', str(self).rstrip(), extra={'logname': host,
+                # 'host_index': self.host_index, 'host_total': variables.host_total})
                 s.connect((host, port))
                 s.settimeout(None)
                 s.sendall(str(self))
@@ -118,27 +115,27 @@ class Request:
                         break
 
                     data += temp
-                s.close()
-            except(socket.error, RuntimeError, Exception):
+                break
+            except(socket.error, RuntimeError, Exception) as e:
+                self.logger.warning("attempt %d/%d: %s", attempt + 1, MAX_ATTEMPTS_PER_HOST, e.strerror, extra={'logname': host,
+                'host_index': self.host_index, 'host_total': variables.host_total})
                 attempt += 1
                 time.sleep(PAUSE_TIME_AFTER_TIMEOUT)
                 s.close()
                 continue
-            break
 
         response = Response(data)
 
         store_cache_response(self, response, host, port, self.host_index)
 
         if EXPORT_CSV:
-            add_request_response_to_csv(self, response, url_info)
+            Request.exporter.insert(self, response, url_info)
 
         return response
 
 
 class Response:
     def __init__(self, raw_data):
-        # TODO takes memory, maybe deprecate
         self.raw_data = raw_data
         self.headers = []
         self.body = ''

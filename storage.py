@@ -8,6 +8,7 @@ import hashlib
 import logging
 import os
 import pickle
+import pprint
 
 import variables
 from constants import CACHE
@@ -33,8 +34,8 @@ def get_cache_response(request, host, port, url_info, host_index):
     if os.path.isdir(directory):
         try:
             if os.path.exists(filepath):
-                logger.debug("using cached response %s", filepath,
-                             extra={'logname': host, 'host_index': host_index, 'host_total': variables.host_total})
+                # logger.debug("using cached response %s", filepath,
+                #              extra={'logname': host, 'host_index': host_index, 'host_total': variables.host_total})
                 f_url = open(filepath, 'rb')
                 response = pickle.load(f_url)
                 f_url.close()
@@ -46,6 +47,17 @@ def get_cache_response(request, host, port, url_info, host_index):
             raise ValueError('corrupt cache file', filepath)
     else:
         raise IOError('directory not found', directory)
+
+
+def store_fingerprint(args, fingerprint, url_info):
+    directory = args.output
+
+    if directory[-1:] != '/':
+        directory += '/'
+    filepath = directory + url_info.host + '.' + str(url_info.port)
+
+    with open(filepath, 'w') as file_handler:
+        pprint.PrettyPrinter(stream=file_handler).pprint(fingerprint)
 
 
 def remove_cache_file_for_request(request, host, port):
