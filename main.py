@@ -432,7 +432,7 @@ if __name__ == '__main__':
     blacklist = Blacklist()
 
     # TODO debug
-    hosts = hosts[-50:]
+    hosts = hosts[-15:]
     # hosts.append(hosts[0])
     # hosts.append('unreachable')
 
@@ -444,4 +444,5 @@ if __name__ == '__main__':
     process_hosts(args, hosts, known_fingerprints, blacklist)
 
     # csv_exporter()
-    Request.exporter.generate_output_file()
+    # Request.exporter.generate_output_file()
+    Request.exporter.generate_output_file2()
