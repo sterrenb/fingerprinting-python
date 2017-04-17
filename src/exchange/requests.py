@@ -1,8 +1,8 @@
 import sys
 
-from http import Request
-from logger import setup_logger
-from storage import store_requests, get_request_items
+from src.exchange.http import Request
+from src.io.storage import store_requests
+from src.static.logger import setup_logger
 
 
 class RequestGenerator:

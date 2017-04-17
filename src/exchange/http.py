@@ -5,18 +5,17 @@
 # of the License at https://opensource.org/licenses/MIT#
 
 import re
-import socket
-import urlparse
-import time
 import select
+import socket
+import time
+import urlparse
 
-import variables
-from constants import EXPORT_CSV, NO_RESPONSE_CODE, NO_RESPONSE_TEXT, CACHE, PAUSE_TIME_AFTER_TIMEOUT, \
+from src.io.export import Exporter
+from src.io.storage import remove_cache_file_for_request_string, create_cache_directory_for_host, \
+    store_cache_response_string, get_cache_response_from_request_string
+from src.static import variables
+from src.static.constants import EXPORT_CSV, NO_RESPONSE_CODE, NO_RESPONSE_TEXT, PAUSE_TIME_AFTER_TIMEOUT, \
     MAX_ATTEMPTS_PER_HOST
-from export import Exporter
-from storage import store_cache_response, get_cache_response_from_request, remove_cache_file_for_request, \
-    create_cache_directory_for_host, get_cache_response_from_request_string, remove_cache_file_for_request_string, \
-    store_cache_response_string
 
 
 class UrlInfo:

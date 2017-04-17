@@ -4,7 +4,9 @@
 # use this file except in compliance with the License. You may obtain a copy
 # of the License at https://opensource.org/licenses/MIT#
 
+host_total = 0
 
-def init():
+
+def init(total):
     global host_total
-    host_total = 0
+    host_total = total

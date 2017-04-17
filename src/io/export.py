@@ -7,7 +7,7 @@
 import csv
 from operator import itemgetter
 
-from constants import CSV_VERBOSE, CSV
+from src.static.constants import CSV
 
 
 class Exporter:

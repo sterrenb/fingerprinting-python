@@ -4,9 +4,10 @@
 # use this file except in compliance with the License. You may obtain a copy
 # of the License at https://opensource.org/licenses/MIT#
 
-import http
 import gevent.monkey
 from gevent.pool import Pool
+
+from src.exchange import http
 
 # To view the number of servers in the output file:
 # cat with-server-header.txt | sort | uniq -c | sort -rn

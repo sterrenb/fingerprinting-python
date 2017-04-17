@@ -7,16 +7,18 @@
 import glob
 import sys
 
-import variables
-from arguments import parse_arguments
-from blacklist import Blacklist
-from constants import NO_RESPONSE_CODE, DATA_NONE, LEXICAL, SEMANTIC, SYNTACTIC, DATA_LIST, BLACKLIST
-from http import Request, UrlInfo, submit_string
-from logger import setup_logger, LOGNAME_START
-from storage import store_fingerprint, get_request_items
+from src.io.storage import get_request_items, store_fingerprint
+from static import variables
+from static.arguments import parse_arguments
+from static.blacklist import Blacklist
+from static.logger import setup_logger, LOGNAME_START
+
+from src.exchange.http import Request, UrlInfo, submit_string
+from src.static.constants import NO_RESPONSE_CODE, DATA_NONE, LEXICAL, SEMANTIC, SYNTACTIC, DATA_LIST
 
 logger = setup_logger()
 
+global host_total
 
 def add_characteristic(category, name, value, fingerprint, data_type=DATA_NONE):
     if not fingerprint[category].has_key(name):
@@ -432,7 +434,7 @@ def process_hosts(args, hosts, known_fingerprints, blacklist):
 
 if __name__ == '__main__':
     try:
-        variables.init()
+        # variables.init()
 
         args = parse_arguments()
 
@@ -440,9 +442,11 @@ if __name__ == '__main__':
 
         hosts = get_hosts(args)
 
+        variables.init(len(hosts))
+
         blacklist = Blacklist()
 
-        hosts = hosts[-5:]
+        hosts = hosts[-10:]
 
         variables.host_total = len(hosts)
 

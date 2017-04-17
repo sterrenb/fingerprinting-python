@@ -4,10 +4,10 @@
 # use this file except in compliance with the License. You may obtain a copy
 # of the License at https://opensource.org/licenses/MIT#
 
-import sys
 import logging
+import sys
 
-from constants import BOLD_SEQ, RESET_SEQ, LOGNAME_START
+from src.static.constants import BOLD_SEQ, RESET_SEQ, LOGNAME_START
 
 FORMAT = '%(asctime)s - ' + BOLD_SEQ + '%(logname)15s' + RESET_SEQ + \
          ' [%(host_index)d/%(host_total)d] - %(levelname)7s - %(message)s'

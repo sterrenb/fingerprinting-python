@@ -4,17 +4,15 @@
 # use this file except in compliance with the License. You may obtain a copy
 # of the License at https://opensource.org/licenses/MIT#
 import fnmatch
-import glob
 import hashlib
 import logging
 import os
 import pickle
 import pprint
+import sys
 
-import jsonpickle as jsonpickle
-
-import variables
-from constants import CACHE, REQUESTS
+from src.static import variables
+from src.static.constants import CACHE, REQUESTS
 
 logger = logging.getLogger('root')
 
@@ -73,6 +71,9 @@ def get_cache_response_from_request_string(request_string, host, port, url_info,
                 logger.debug("using cached response %s", filepath,
                              extra={'logname': host, 'host_index': host_index, 'host_total': variables.host_total})
                 f_url = open(filepath, 'rb')
+
+                from src.exchange import http
+                sys.modules['http'] = http
                 response = pickle.load(f_url)
                 f_url.close()
 
