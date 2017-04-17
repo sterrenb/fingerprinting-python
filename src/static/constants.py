@@ -7,9 +7,9 @@
 import datetime
 
 # file and directory names
-CACHE = 'cache'
-REQUESTS = 'requests'
-BLACKLIST = 'blacklist'
+CACHE = 'data/cache'
+REQUESTS = 'data/requests'
+BLACKLIST = 'data/blacklist'
 # CSV = 'aaa_' + str(datetime.datetime.now()).replace(' ', '_')[:-7] + '.csv'
 CSV = 'aaa.csv'
 

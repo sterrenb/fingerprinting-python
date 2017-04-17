@@ -32,13 +32,13 @@ def parse_arguments():
     parser.add_argument(
         '-s', '--save',
         help="directory where output fingerprints are stored",
-        dest='output', default='output/'
+        dest='output', default='data/output/'
     )
 
     parser.add_argument(
         '-k', '--known',
         help="directory where known fingerprints are stored",
-        dest='known', default='known/'
+        dest='known', default='data/known/'
     )
 
     parser.add_argument(

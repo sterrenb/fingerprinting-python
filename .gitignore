@@ -3,13 +3,8 @@
 *.txt
 *.csv*
 *.bak
-blacklist
-old.py
-output/*
-!output/example.com.80
-cache/*
-requests/
-!requests/default_get
+data/**
+!data/**/.keep
 
 ### Linux ###
 *~
