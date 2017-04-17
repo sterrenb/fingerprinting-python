@@ -194,7 +194,7 @@ def get_fingerprint(host, host_index, blacklist):
 
         try:
             logger.debug('applying method %s', method.__name__,
-                        extra={'logname': host, 'host_index': host_index, 'host_total': variables.host_total})
+                         extra={'logname': host, 'host_index': host_index, 'host_total': variables.host_total})
             method(host, host_index, fingerprint)
         except ValueError as e:
             logger.warning("%s", e,
@@ -415,34 +415,36 @@ def process_hosts(args, hosts, known_fingerprints, blacklist):
                 process_host(args, host, host_index, known_fingerprints, blacklist)
             else:
                 logger.warning('host is blacklisted',
-                             extra={'logname': host, 'host_index': host_index, 'host_total': variables.host_total})
+                               extra={'logname': host, 'host_index': host_index, 'host_total': variables.host_total})
         except ValueError as e:
             logger.error(e, extra={'logname': host, 'host_index': host_index, 'host_total': variables.host_total})
 
 
 if __name__ == '__main__':
-    variables.init()
+    try:
+        variables.init()
 
-    args = parse_arguments()
+        args = parse_arguments()
 
-    logger = setup_logger(args)
+        logger = setup_logger(args)
 
-    hosts = get_hosts(args)
+        hosts = get_hosts(args)
 
-    blacklist = Blacklist()
+        blacklist = Blacklist()
 
-    # TODO debug
-    hosts = hosts[-15:]
-    # hosts.append(hosts[0])
-    # hosts.append('unreachable')
+        # TODO debug
+        hosts = hosts[15:]
+        # hosts.append(hosts[0])
+        # hosts.append('unreachable')
 
 
-    variables.host_total = len(hosts)
+        variables.host_total = len(hosts)
 
-    known_fingerprints = get_known_fingerprints(args)
+        known_fingerprints = get_known_fingerprints(args)
 
-    process_hosts(args, hosts, known_fingerprints, blacklist)
+        process_hosts(args, hosts, known_fingerprints, blacklist)
 
-    # csv_exporter()
-    # Request.exporter.generate_output_file()
-    Request.exporter.generate_output_file2()
+        Request.exporter.generate_output_file()
+    except KeyboardInterrupt:
+        Request.exporter.generate_output_file()
+        sys.exit()

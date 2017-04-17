@@ -18,14 +18,6 @@ class Exporter:
     def __del__(self):
         self.file_handler.close()
 
-    def __insert_item(self, request, response, host, attribute):
-        item = Item(request, response, attribute)
-        if host not in self.items:
-            self.items[host] = [item]
-        else:
-            slf.items[host].append(item)
-
-
     def insert(self, request, response, url_info):
         host = url_info.host + ':' + str(url_info.port)
 
@@ -34,12 +26,20 @@ class Exporter:
 
         self.csv_dict[host][str(request)] = response
 
-
     @staticmethod
     def obtain_items_per_request(csv_dict):
         items = {}
 
         for host, requests in csv_dict.iteritems():
+            banner = Exporter.__extract_banner_from_requests(requests)
+            item_banner = Item(banner, 'REPORTED')
+
+            if 'BANNER' not in items:
+                items['BANNER'] = {host: [item_banner]}
+            else:
+                items['BANNER'][host] = [item_banner]
+
+            print "hi"
             for request, response in requests.iteritems():
                 item_response_code = Item(response.response_code, 'RESPONSE_CODE')
                 item_response_text = Item(response.response_text, 'RESPONSE_TEXT')
@@ -52,8 +52,6 @@ class Exporter:
                     else:
                         items[request][host].extend([item_response_code, item_response_text])
         return items
-
-
 
     @staticmethod
     def obtain_items_per_host(csv_dict):
@@ -74,32 +72,15 @@ class Exporter:
                 items[host][request] = [item_response_code, item_response_text]
         return items
 
-    @staticmethod
-    def __generate_response_code_item(request, response):
-        attribute = 'RESPONSE_CODE'
-        item_request = request.rstrip()
-        item_response = response.response_code
-
         return Item(item_request, item_response, attribute)
 
-    @staticmethod
-    def __generate_response_text_item(request, response):
-        attribute = 'RESPONSE_TEXT'
-        item_request = request.rstrip()
-        item_response = response.response_text
-
-        return Item(item_request, item_response, attribute)
-
-
-
-    def generate_output_file2(self):
+    def generate_output_file(self):
         writer = csv.writer(self.file_handler, delimiter=',', quotechar='"', quoting=csv.QUOTE_ALL)
 
-        # create dict of items per host, with attributes
         items_per_request = self.obtain_items_per_request(self.csv_dict)
 
         rows = []
-        row_top = ['request', 'attribute', 'unique values']
+        row_top = ['method', 'attribute', 'unique values']
 
         out = {}
 
@@ -111,58 +92,22 @@ class Exporter:
 
         # convert items to rows
         for request_string, hosts in items_per_request.iteritems():
+            out.setdefault(request_string, {})
             for host, items in hosts.iteritems():
                 for item in items:
-                    print "item for %s" % host
-                    if request_string in out:
-                        if item.attribute in out[request_string]:
-                            out[request_string][item.attribute].append(item.output)
-                    else:
-                        out[request_string] = {item.attribute: [item.output]}
-                    # if request_string not in out:
-                    #     out[request_string] = {item.attribute: [item.output]}
-                    # else:
-                    #     if item.attribute not in out[request_string]:
-                    #         out[request_string][item.attribute] = [item.output]
-                    #     else:
-                    #         out[request_string][item.attribute].append(item.output)
+                    out[request_string].setdefault(item.attribute, []).append(item.output)
 
         for request_string, attributes in out.iteritems():
             for attribute_string, output_list in attributes.iteritems():
                 unique_values = len(set(output_list))
                 row = [request_string, attribute_string, unique_values] + output_list
-                writer.writerow(row)
+                rows.append(row)
 
-        # for host, request_items in items_per_request.iteritems():
-        #     print "hi"
-        #     for request_input, output_list in request_items.iteritems():
-        #         for output_item in output_list:
-        #             row = [request_input, output_item.attribute, output_item.output]
-        #             writer.writerow(row)
+        rows.sort(key=lambda x: x[2], reverse=True)
 
+        for row in rows:
+            writer.writerow(row)
         print "hi"
-
-    def generate_output_file(self):
-        # TODO allow intermediate
-        writer = csv.writer(self.file_handler, delimiter=',', quotechar='"', quoting=csv.QUOTE_ALL)
-
-        results = {}
-        hosts = []
-
-        for host, requests in self.csv_dict.iteritems():
-            if CSV_VERBOSE:
-                hosts.append(host)
-
-            self.__generate_banner_reported_row(requests, results)
-            results = self.__generate_requests_rows(requests, results)
-
-        result_rows = self.__convert_dictionary_to_list(results)
-        result_rows = self.add_amount_of_unique_values_to_rows(result_rows, CSV_VERBOSE)
-        result_rows = sorted(result_rows, key=itemgetter(1), reverse=True)
-
-        self.write_top_row_to_file(writer, hosts)
-
-        self.write_rows_to_file(result_rows, writer)
 
     @staticmethod
     def __convert_dictionary_to_list(dictionary):
