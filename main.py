@@ -432,11 +432,7 @@ if __name__ == '__main__':
 
         blacklist = Blacklist()
 
-        # TODO debug
-        hosts = hosts[15:]
-        # hosts.append(hosts[0])
-        # hosts.append('unreachable')
-
+        hosts = hosts[-5:]
 
         variables.host_total = len(hosts)
 
