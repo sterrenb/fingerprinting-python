@@ -24,6 +24,12 @@ class Exporter:
         self.csv_dict.setdefault(host, {})
         self.csv_dict[host].setdefault(str(request), response)
 
+    def insert_string(self, request_string, response, url_info):
+        host = url_info.host + ':' + str(url_info.port)
+
+        self.csv_dict.setdefault(host, {})
+        self.csv_dict[host].setdefault(request_string, response)
+
     @staticmethod
     def obtain_items_per_request(csv_dict):
         items = {'BANNER': {}}

@@ -8,6 +8,8 @@ old.py
 output/*
 !output/example.com.80
 cache/*
+requests/
+!requests/default_get
 
 ### Linux ###
 *~

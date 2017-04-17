@@ -8,6 +8,7 @@ import datetime
 
 # file and directory names
 CACHE = 'cache'
+REQUESTS = 'requests'
 BLACKLIST = 'blacklist'
 # CSV = 'aaa_' + str(datetime.datetime.now()).replace(' ', '_')[:-7] + '.csv'
 CSV = 'aaa.csv'
@@ -31,7 +32,6 @@ LOGNAME_START = {
 LEXICAL = 'LEXICAL'
 SYNTACTIC = 'SYNTACTIC'
 SEMANTIC = 'SEMANTIC'
-REQUESTS = 'REQUESTS'
 
 NO_RESPONSE = 'NO_RESPONSE'
 NO_RESPONSE_CODE = 'NO_RESPONSE_CODE'

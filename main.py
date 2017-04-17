@@ -11,9 +11,9 @@ import variables
 from arguments import parse_arguments
 from blacklist import Blacklist
 from constants import NO_RESPONSE_CODE, DATA_NONE, LEXICAL, SEMANTIC, SYNTACTIC, DATA_LIST, BLACKLIST
-from http import Request, UrlInfo
+from http import Request, UrlInfo, submit_string
 from logger import setup_logger, LOGNAME_START
-from storage import store_fingerprint
+from storage import store_fingerprint, get_request_items
 
 logger = setup_logger()
 
@@ -186,6 +186,16 @@ def get_fingerprint(host, host_index, blacklist):
         SEMANTIC: {}
     }
 
+    url_info = UrlInfo(host)
+
+    request_items = get_request_items()
+    for name, request_string in request_items.iteritems():
+        response = submit_string(request_string, url_info, host_index, logger)
+        get_characteristics(name, response, fingerprint, host, host_index)
+
+    return fingerprint
+
+    # TODO deprecate
     fingerprint_methods = [default_get, default_options, unknown_method, unauthorized_activity, empty_uri,
                            malformed_method, unavailable_accept, long_content_length]
 

@@ -14,8 +14,9 @@ import variables
 from constants import EXPORT_CSV, NO_RESPONSE_CODE, NO_RESPONSE_TEXT, CACHE, PAUSE_TIME_AFTER_TIMEOUT, \
     MAX_ATTEMPTS_PER_HOST
 from export import Exporter
-from storage import store_cache_response, get_cache_response, remove_cache_file_for_request, \
-    create_cache_directory_for_host
+from storage import store_cache_response, get_cache_response_from_request, remove_cache_file_for_request, \
+    create_cache_directory_for_host, get_cache_response_from_request_string, remove_cache_file_for_request_string, \
+    store_cache_response_string
 
 
 class UrlInfo:
@@ -35,13 +36,14 @@ class UrlInfo:
 class Request:
     exporter = Exporter()
 
-    def __init__(self, url, host_index, logger, method="GET", local_uri='/', version="1.0"):
+    def __init__(self, url, host_index, logger, method="GET", local_uri='/', version="1.0", name=""):
         self.url = url
         self.host_index = host_index
         self.logger = logger
         self.method = method
         self.local_uri = local_uri
         self.version = version
+        self.name = name
         self.headers = [
             ['User-Agent', 'Fingerprinter/1.0']
         ]
@@ -69,7 +71,7 @@ class Request:
         port = url_info.port
 
         try:
-            response = get_cache_response(self, host, port, url_info, self.host_index)
+            response = get_cache_response_from_request(self, host, port, url_info, self.host_index)
 
             if EXPORT_CSV:
                 Request.exporter.insert(self, response, url_info)
@@ -117,8 +119,9 @@ class Request:
                     data += temp
                 break
             except(socket.error, RuntimeError, Exception) as e:
-                self.logger.warning("attempt %d/%d: %s", attempt + 1, MAX_ATTEMPTS_PER_HOST, e.strerror, extra={'logname': host,
-                'host_index': self.host_index, 'host_total': variables.host_total})
+                self.logger.warning("attempt %d/%d: %s", attempt + 1, MAX_ATTEMPTS_PER_HOST, e.strerror,
+                                    extra={'logname': host,
+                                           'host_index': self.host_index, 'host_total': variables.host_total})
                 attempt += 1
                 time.sleep(PAUSE_TIME_AFTER_TIMEOUT)
                 s.close()
@@ -207,3 +210,73 @@ class Response:
             return s[0]
         else:
             return s
+
+
+def submit_string(request_string, url_info, host_index, logger):
+    host = url_info.host
+    port = url_info.port
+
+    try:
+        response = get_cache_response_from_request_string(request_string, host, port, url_info, host_index)
+
+        if EXPORT_CSV:
+            Request.exporter.insert_string(request_string, response, url_info)
+
+        return response
+    except ValueError:
+        remove_cache_file_for_request_string(request_string, host, port)
+    except IOError:
+        create_cache_directory_for_host(host, port)
+
+    attempt = 0
+    while attempt < MAX_ATTEMPTS_PER_HOST:
+        data = ''
+
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(PAUSE_TIME_AFTER_TIMEOUT)
+
+        try:
+            logger.info("sending request \n%4s%s", ' ', request_string.rstrip(), extra={'logname': host,
+            'host_index': host_index, 'host_total': variables.host_total})
+            s.connect((host, port))
+            s.settimeout(None)
+            s.sendall(request_string)
+        except(socket.error, RuntimeError, Exception) as e:
+            raise ValueError(e)
+
+        data = ''
+
+        try:
+            while 1:
+                # Only proceed if feedback is received
+                ss = select.select([s], [], [], 1)[0]
+                if not ss:
+                    break
+
+                # Assign the temporary socket pointer to the first socket in the list
+                ss = ss[0]
+
+                # Store the response for processing if present
+                temp = ss.recv(1024)
+                if not temp:
+                    break
+
+                data += temp
+            break
+        except(socket.error, RuntimeError, Exception) as e:
+            logger.warning("attempt %d/%d: %s", attempt + 1, MAX_ATTEMPTS_PER_HOST, e.strerror, extra={'logname': host,
+                                                                                                       'host_index': host_index,
+                                                                                                       'host_total': variables.host_total})
+            attempt += 1
+            time.sleep(PAUSE_TIME_AFTER_TIMEOUT)
+            s.close()
+            continue
+
+    response = Response(data)
+
+    store_cache_response_string(request_string, response, host, port, host_index)
+
+    if EXPORT_CSV:
+        Request.exporter.insert_string(request_string, response, url_info)
+
+    return response
