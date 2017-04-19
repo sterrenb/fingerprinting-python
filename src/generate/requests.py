@@ -2,7 +2,6 @@ import sys
 
 from src.exchange.http import Request
 from src.io.storage import store_requests
-from src.static.logger import setup_logger
 
 
 class RequestGenerator:
