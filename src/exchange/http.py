@@ -235,7 +235,7 @@ def submit_string(request_string, url_info, host_index, logger):
         s.settimeout(PAUSE_TIME_AFTER_TIMEOUT)
 
         try:
-            logger.info("sending request \n%4s%s", ' ', request_string.rstrip(), extra={'logname': host,
+            logger.info("sending request: %s", request_string.rstrip(), extra={'logname': host,
             'host_index': host_index, 'host_total': variables.host_total})
             s.connect((host, port))
             s.settimeout(None)

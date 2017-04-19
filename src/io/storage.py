@@ -116,6 +116,9 @@ def get_request_items():
 
     for root, directories, filenames in os.walk(REQUESTS):
         for filename in fnmatch.filter(filenames, '*'):
+            if filename == '.keep':
+                continue
+
             filepath = os.path.join(root, filename)
 
             with open(filepath, 'r') as file_handler:
