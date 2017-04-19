@@ -36,8 +36,14 @@ class Exporter:
 
         for host, requests in csv_dict.iteritems():
             banner = Exporter.__extract_banner_from_requests(requests)
-            item_banner = Item(banner, 'REPORTED')
-            items['BANNER'].setdefault(host, []).append(item_banner)
+            banner_split = banner.split('/')
+            item_name_banner = Item(banner_split[0].split()[0], 'NAME')
+
+            if len(banner_split) > 0:
+                item_version_banner = Item(banner_split[1].split()[0], 'VERSION')
+                items['BANNER'].setdefault(host, []).append(item_version_banner)
+
+            items['BANNER'].setdefault(host, []).append(item_name_banner)
 
             for request, response in requests.iteritems():
                 # TODO split to defs
@@ -49,8 +55,8 @@ class Exporter:
                 item_response_text = Item(response.response_text, 'RESPONSE_TEXT')
                 response_items.append(item_response_text)
 
-                item_response_headers = Item(str(response.header_names()), 'HEADERS')
-                response_items.append(item_response_headers)
+                # item_response_headers = Item(str(response.header_names()), 'HEADERS')
+                # response_items.append(item_response_headers)
 
                 items.setdefault(request, {})
                 items[request].setdefault(host, []).extend(response_items)
