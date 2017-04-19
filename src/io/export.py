@@ -13,6 +13,7 @@ from src.static.constants import CSV
 class Exporter:
     def __init__(self):
         self.csv_dict = {}
+        self.request_names = {'BANNER': 'banner_grab'}
         self.file_handler = open(CSV, 'w+')
 
     def __del__(self):
@@ -24,26 +25,30 @@ class Exporter:
         self.csv_dict.setdefault(host, {})
         self.csv_dict[host].setdefault(str(request), response)
 
-    def insert_string(self, request_string, response, url_info):
+    def insert_string(self, request_string, request_name, response, url_info):
         host = url_info.host + ':' + str(url_info.port)
 
         self.csv_dict.setdefault(host, {})
         self.csv_dict[host].setdefault(request_string, response)
 
-    @staticmethod
-    def obtain_items_per_request(csv_dict):
+        self.request_names.setdefault(request_string, request_name)
+
+    def obtain_items_per_request(self, csv_dict):
         items = {'BANNER': {}}
 
         for host, requests in csv_dict.iteritems():
+            # banner name and version
             banner = Exporter.__extract_banner_from_requests(requests)
             banner_split = banner.split('/')
-            item_name_banner = Item(banner_split[0].split()[0], 'NAME')
 
             if len(banner_split) > 0:
-                item_version_banner = Item(banner_split[1].split()[0], 'VERSION')
-                items['BANNER'].setdefault(host, []).append(item_version_banner)
+                banner_name = banner_split[0].split()[0] if len(banner_split[0]) > 0 else ''
+                item_name_banner = Item(banner_name, 'NAME')
+                items['BANNER'].setdefault(host, []).append(item_name_banner)
 
-            items['BANNER'].setdefault(host, []).append(item_name_banner)
+                if len(banner_split) > 1:
+                    item_version_banner = Item(banner_split[1].split()[0], 'VERSION')
+                    items['BANNER'].setdefault(host, []).append(item_version_banner)
 
             for request, response in requests.iteritems():
                 # TODO split to defs
@@ -78,13 +83,13 @@ class Exporter:
         for row in rows:
             writer.writerow(row)
 
-    @staticmethod
-    def make_rows(out):
+    def make_rows(self, out):
         rows = []
         for request_string, attributes in out.iteritems():
+            request_name = self.request_names[request_string]
             for attribute_string, output_list in attributes.iteritems():
                 unique_values = len(set(output_list))
-                row = [request_string, attribute_string, unique_values] + output_list
+                row = [request_name, request_string, attribute_string, unique_values] + output_list
                 rows.append(row)
 
         rows.sort(key=lambda x: x[2], reverse=True)
@@ -122,7 +127,7 @@ class Exporter:
 
     @staticmethod
     def write_top_row_to_file(writer, hosts=[]):
-        row_top = ['method', 'attribute', 'unique responses']
+        row_top = ['name', 'method', 'attribute', 'unique responses']
         row_top.extend(hosts)
         writer.writerow(row_top)
 

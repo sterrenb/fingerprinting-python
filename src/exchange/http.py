@@ -211,7 +211,7 @@ class Response:
             return s
 
 
-def submit_string(request_string, url_info, host_index, logger):
+def submit_string(request_string, request_name, url_info, host_index, logger):
     host = url_info.host
     port = url_info.port
 
@@ -219,7 +219,7 @@ def submit_string(request_string, url_info, host_index, logger):
         response = get_cache_response_from_request_string(request_string, host, port, url_info, host_index)
 
         if EXPORT_CSV:
-            Request.exporter.insert_string(request_string, response, url_info)
+            Request.exporter.insert_string(request_string, request_name, response, url_info)
 
         return response
     except ValueError:
@@ -276,6 +276,6 @@ def submit_string(request_string, url_info, host_index, logger):
     store_cache_response_string(request_string, response, host, port, host_index)
 
     if EXPORT_CSV:
-        Request.exporter.insert_string(request_string, response, url_info)
+        Request.exporter.insert_string(request_string, request_name, response, url_info)
 
     return response

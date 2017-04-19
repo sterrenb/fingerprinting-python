@@ -192,7 +192,7 @@ def get_fingerprint(host, host_index, blacklist):
 
     request_items = get_request_items()
     for name, request_string in request_items.iteritems():
-        response = submit_string(request_string, url_info, host_index, logger)
+        response = submit_string(request_string, name, url_info, host_index, logger)
         get_characteristics(name, response, fingerprint, host, host_index)
 
     return fingerprint
@@ -434,8 +434,6 @@ def process_hosts(args, hosts, known_fingerprints, blacklist):
 
 if __name__ == '__main__':
     try:
-        # variables.init()
-
         args = parse_arguments()
 
         logger = setup_logger(args)
@@ -446,7 +444,7 @@ if __name__ == '__main__':
 
         blacklist = Blacklist()
 
-        hosts = hosts[-10:]
+        hosts = hosts[-50:]
 
         variables.host_total = len(hosts)
 
