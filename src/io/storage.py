@@ -88,10 +88,7 @@ def get_cache_response_from_request_string(request_string, host, port, url_info,
 
 def store_fingerprint(args, fingerprint, url_info):
     directory = args.output
-
-    if directory[-1:] != '/':
-        directory += '/'
-    filepath = directory + url_info.host + '.' + str(url_info.port)
+    filepath = os.path.join(directory, url_info.host)
 
     with open(filepath, 'w') as file_handler:
         pprint.PrettyPrinter(stream=file_handler).pprint(fingerprint)

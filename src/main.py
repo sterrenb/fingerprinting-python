@@ -42,10 +42,6 @@ def get_characteristics(test_name, response, fingerprint, host, host_index, NO_R
         add_characteristic(LEXICAL, response_code, response_text, fingerprint)
         add_characteristic(LEXICAL, 'SERVER_NAME_CLAIMED', server_name_claimed, fingerprint)
 
-    # TODO needed?
-    # if test_name.endswith('RANGES'):
-    #     return  # only need the code and text
-
     if test_name.startswith('MALFORMED_'):
         add_characteristic(SEMANTIC, test_name, response_code, fingerprint)
 
@@ -332,7 +328,6 @@ def find_similar_etag(known, similarity, subject):
 
 
 def find_similar_semantic(known, similarity, subject):
-    # TODO make length based on no. of malform requests instead of hardcoded
     for i in range(len(get_malformed_methods())):
         malformed = 'MALFORMED_' + ('000' + str(i))[-3:]
 
@@ -444,7 +439,7 @@ if __name__ == '__main__':
 
         blacklist = Blacklist()
 
-        hosts = hosts[-50:]
+        hosts = hosts[-1:]
 
         variables.host_total = len(hosts)
 

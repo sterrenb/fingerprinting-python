@@ -7,7 +7,7 @@
 import csv
 from operator import itemgetter
 
-from src.static.constants import CSV
+from src.static.constants import CSV, CSV_VERBOSE
 
 
 class Exporter:
@@ -47,7 +47,7 @@ class Exporter:
                 items['BANNER'].setdefault(host, []).append(item_name_banner)
 
                 if len(banner_split) > 1:
-                    item_version_banner = Item(banner_split[1].split()[0], 'VERSION')
+                    item_version_banner = Item(banner_split[1].split()[0] if len(banner_split[1]) > 0 else '', 'VERSION')
                     items['BANNER'].setdefault(host, []).append(item_version_banner)
 
             for request, response in requests.iteritems():
@@ -73,11 +73,14 @@ class Exporter:
 
         items_per_request = self.obtain_items_per_request(self.csv_dict)
 
-        items_per_output     = self.group_items_per_output(items_per_request)
+        items_per_output = self.group_items_per_output(items_per_request)
 
         rows = self.make_rows(items_per_output)
 
-        hosts = items_per_request.iteritems().next()[1].keys()
+        if CSV_VERBOSE:
+            hosts = items_per_request.iteritems().next()[1].keys()
+        else:
+            hosts = []
         self.write_top_row_to_file(writer, hosts)
 
         for row in rows:
@@ -88,13 +91,24 @@ class Exporter:
         for request_string, attributes in out.iteritems():
             request_name = self.request_names[request_string]
             for attribute_string, output_list in attributes.iteritems():
-                unique_values = len(set(output_list))
-                row = [request_name, request_string, attribute_string, unique_values] + output_list
+                # if attribute_string == 'HEADERS':
+                #     headers = out[request_string][attribute_string]
+                unique_values = self.get_unique_values(output_list)
+
+                if CSV_VERBOSE:
+                    row = [request_name, request_string, attribute_string, len(unique_values)] + output_list
+                else:
+                    row = [request_name, request_string, attribute_string, len(unique_values)] + unique_values
                 rows.append(row)
 
-        rows.sort(key=lambda x: x[2], reverse=True)
+        rows.sort(key=lambda x: x[3], reverse=True)
 
         return rows
+
+    @staticmethod
+    def get_unique_values(output_list):
+        # TODO obtain unique values from a list of headers
+        return list(set(output_list))
 
     @staticmethod
     def group_items_per_output(items_per_request):

@@ -42,5 +42,5 @@ DATA_NONE = None
 
 # TODO make verbose a possibility again
 # TODO make part of arguments list
-CSV_VERBOSE = False
+CSV_VERBOSE = True
 EXPORT_CSV = True
