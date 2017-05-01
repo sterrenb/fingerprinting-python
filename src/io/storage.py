@@ -12,7 +12,7 @@ import pprint
 import sys
 
 from src.static import variables
-from src.static.constants import CACHE, REQUESTS
+from src.static.constants import CACHE, REQUESTS, REQUEST_BLACKLIST
 
 logger = logging.getLogger('root')
 
@@ -88,7 +88,7 @@ def get_cache_response_from_request_string(request_string, host, port, url_info,
 
 def store_fingerprint(args, fingerprint, url_info):
     directory = args.output
-    filepath = os.path.join(directory, url_info.host)
+    filepath = os.path.join(directory, url_info.host + '.' + str(url_info.port))
 
     with open(filepath, 'w') as file_handler:
         pprint.PrettyPrinter(stream=file_handler).pprint(fingerprint)
@@ -113,7 +113,7 @@ def get_request_items():
 
     for root, directories, filenames in os.walk(REQUESTS):
         for filename in fnmatch.filter(filenames, '*'):
-            if filename == '.keep':
+            if any(filename in blacklisted for blacklisted in REQUEST_BLACKLIST):
                 continue
 
             filepath = os.path.join(root, filename)
@@ -124,6 +124,11 @@ def get_request_items():
                 request_items[filename] = request
 
     return request_items
+
+
+def get_number_of_malformed_requests():
+    filepath = os.path.join(REQUESTS, 'malformed')
+    return len(os.listdir(filepath))
 
 
 def remove_cache_file_for_request(request, host, port):

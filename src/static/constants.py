@@ -13,6 +13,9 @@ BLACKLIST = 'data/blacklist'
 # CSV = 'aaa_' + str(datetime.datetime.now()).replace(' ', '_')[:-7] + '.csv'
 CSV = 'aaa.csv'
 
+# files to ignore in the requests directories
+REQUEST_BLACKLIST = ['.keep', '.DS_Store']
+
 # failure handler times
 PAUSE_TIME_AFTER_TIMEOUT = 1
 MAX_ATTEMPTS_PER_HOST = 3
