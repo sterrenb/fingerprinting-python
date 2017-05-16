@@ -5,9 +5,10 @@
 # of the License at https://opensource.org/licenses/MIT#
 
 import glob
+import re
 import sys
 
-from src.io.storage import get_request_items, store_fingerprint
+from src.io.storage import get_request_items, store_fingerprint, get_number_of_malformed_requests
 from static import variables
 from static.arguments import parse_arguments
 from static.blacklist import Blacklist
@@ -42,7 +43,14 @@ def get_characteristics(test_name, response, fingerprint, host, host_index, NO_R
         add_characteristic(LEXICAL, response_code, response_text, fingerprint)
         add_characteristic(LEXICAL, 'SERVER_NAME_CLAIMED', server_name_claimed, fingerprint)
 
-    if test_name.startswith('MALFORMED_'):
+    # nginx 404 test
+    # if response_code == '404':
+    #     server_name_404 = get_server_name_404(response)
+    #     if len(server_name_404) > 0:
+    #         add_characteristic(LEXICAL, 'SERVER_NAME_404', server_name_404, fingerprint)
+
+
+    if test_name.startswith('malformed_'):
         add_characteristic(SEMANTIC, test_name, response_code, fingerprint)
 
     if response.has_header('Allow'):
@@ -188,8 +196,12 @@ def get_fingerprint(host, host_index, blacklist):
 
     request_items = get_request_items()
     for name, request_string in request_items.iteritems():
-        response = submit_string(request_string, name, url_info, host_index, logger)
-        get_characteristics(name, response, fingerprint, host, host_index)
+        try:
+            response = submit_string(request_string, name, url_info, host_index, logger)
+            get_characteristics(name, response, fingerprint, host, host_index)
+        except ValueError as e:
+            logger.warning("%s", e,
+                           extra={'logname': host, 'host_index': host_index, 'host_total': variables.host_total})
 
     return fingerprint
 
@@ -220,20 +232,17 @@ def get_fingerprint(host, host_index, blacklist):
 def get_known_fingerprints(args):
     if args.gather is False:
         fingerprints = []
-        d = args.known
+        directories = [args.known, 'data/output']
 
-        if d[-1:] != '/':
-            d += '/'
-        for f in glob.glob(d + '/*'):
-            f_file = open(f, 'r')
-            f_fingerprint = eval(f_file.read())
-            fingerprints.append(f_fingerprint)
-            f_file.close()
-            logger.debug("loading known fingerprint %s", f, extra=LOGNAME_START)
+
+        for directory in directories:
+            for filepath in glob.glob(directory + '/*'):
+                logger.debug("loading fingerprint %s", filepath, extra=LOGNAME_START)
+                with open(filepath, 'r') as file_handler:
+                    f_fingerprint = eval(file_handler.read())
+                    fingerprints.append(f_fingerprint)
 
         return fingerprints
-    else:
-        return
 
 
 def get_fingerprint_scores(args, subject, known_fingerprints):
@@ -259,7 +268,9 @@ def get_fingerprint_scores(args, subject, known_fingerprints):
 
             similarity = find_similar_semantic(known, similarity, subject)
 
-            certainty = similarity['matches'] / float(similarity['matches'] + similarity['mismatches'])
+            matches = similarity['matches']
+            total = float(similarity['matches'] + similarity['mismatches'])
+            certainty = matches / total if total > 0 else 0
 
         scores.append([known, similarity, certainty])
     return scores
@@ -288,7 +299,7 @@ def find_similar_lexical(known, similarity, subject):
 
 def find_similar_syntactic(known, similarity, subject):
     similarity = find_similar_allow_order(known, similarity, subject)
-    similarity = find_similar_etag(known, similarity, subject)
+    # similarity = find_similar_etag(known, similarity, subject)
 
     return similarity
 
@@ -298,6 +309,8 @@ def find_similar_allow_order(known, similarity, subject):
 
     if known[SYNTACTIC].has_key('ALLOW_ORDER'):
         known_allows = known[SYNTACTIC]['ALLOW_ORDER']
+    else:
+        return similarity
 
     if subject[SYNTACTIC].has_key('ALLOW_ORDER'):
         subject_allows = subject[SYNTACTIC]['ALLOW_ORDER']
@@ -328,8 +341,8 @@ def find_similar_etag(known, similarity, subject):
 
 
 def find_similar_semantic(known, similarity, subject):
-    for i in range(len(get_malformed_methods())):
-        malformed = 'MALFORMED_' + ('000' + str(i))[-3:]
+    for i in range(get_number_of_malformed_requests()):
+        malformed = 'malformed_' + str(i)
 
         if known[SEMANTIC].has_key(malformed):
             known_malformed = known[SEMANTIC][malformed]
@@ -376,7 +389,10 @@ def print_scores(hostname, scores):
         lint, hostname[:50], 'name', 'certainty', 'matches', 'mismatches', 'unknowns')
 
     for score in scores:
-        name = score[0][LEXICAL]['SERVER_NAME_CLAIMED'][:50]
+        a = score[0]
+        b = score[0][LEXICAL]
+        # c = score[0][LEXICAL]['SERVER_NAME_CLAIMED']
+        name = score[0][LEXICAL]['SERVER_NAME_CLAIMED'] if score[0][LEXICAL].has_key('SERVER_NAME_CLAIMED') else 'NO_BANNER'
         matches = score[1]['matches']
         mismatches = score[1]['mismatches']
         unknowns = score[1]['unknowns']
@@ -439,7 +455,8 @@ if __name__ == '__main__':
 
         blacklist = Blacklist()
 
-        hosts = hosts[-1:]
+        hosts = hosts[-200:]
+        # hosts = [hosts[1]]
 
         variables.host_total = len(hosts)
 

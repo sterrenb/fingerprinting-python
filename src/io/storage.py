@@ -68,8 +68,8 @@ def get_cache_response_from_request_string(request_string, host, port, url_info,
     if os.path.isdir(directory):
         try:
             if os.path.exists(filepath):
-                logger.debug("using cached response %s", filepath,
-                             extra={'logname': host, 'host_index': host_index, 'host_total': variables.host_total})
+                # logger.debug("using cached response %s", filepath,
+                #              extra={'logname': host, 'host_index': host_index, 'host_total': variables.host_total})
                 f_url = open(filepath, 'rb')
 
                 from src.exchange import http

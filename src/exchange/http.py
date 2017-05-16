@@ -63,78 +63,6 @@ class Request:
     def add_header(self, key, value):
         self.headers.append([key, value])
 
-    @property
-    def submit(self):
-        url_info = UrlInfo(self.url)
-        host = url_info.host
-        port = url_info.port
-
-        try:
-            response = get_cache_response_from_request(self, host, port, url_info, self.host_index)
-
-            if EXPORT_CSV:
-                Request.exporter.insert(self, response, url_info)
-                # add_request_response(self, response, url_info)
-
-            return response
-        except ValueError:
-            remove_cache_file_for_request(self, host, port)
-        except IOError:
-            create_cache_directory_for_host(host, port)
-
-        attempt = 0
-        while attempt < MAX_ATTEMPTS_PER_HOST:
-            data = ''
-
-            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            s.settimeout(PAUSE_TIME_AFTER_TIMEOUT)
-
-            try:
-                # self.logger.info("sending request \n%4s%s", ' ', str(self).rstrip(), extra={'logname': host,
-                # 'host_index': self.host_index, 'host_total': variables.host_total})
-                s.connect((host, port))
-                s.settimeout(None)
-                s.sendall(str(self))
-            except(socket.error, RuntimeError, Exception) as e:
-                raise ValueError(e)
-
-            data = ''
-
-            try:
-                while 1:
-                    # Only proceed if feedback is received
-                    ss = select.select([s], [], [], 1)[0]
-                    if not ss:
-                        break
-
-                    # Assign the temporary socket pointer to the first socket in the list
-                    ss = ss[0]
-
-                    # Store the response for processing if present
-                    temp = ss.recv(1024)
-                    if not temp:
-                        break
-
-                    data += temp
-                break
-            except(socket.error, RuntimeError, Exception) as e:
-                self.logger.warning("attempt %d/%d: %s", attempt + 1, MAX_ATTEMPTS_PER_HOST, e.strerror,
-                                    extra={'logname': host,
-                                           'host_index': self.host_index, 'host_total': variables.host_total})
-                attempt += 1
-                time.sleep(PAUSE_TIME_AFTER_TIMEOUT)
-                s.close()
-                continue
-
-        response = Response(data)
-
-        store_cache_response(self, response, host, port, self.host_index)
-
-        if EXPORT_CSV:
-            Request.exporter.insert(self, response, url_info)
-
-        return response
-
 
 class Response:
     def __init__(self, raw_data):
@@ -241,6 +169,7 @@ def submit_string(request_string, request_name, url_info, host_index, logger):
             s.settimeout(None)
             s.sendall(request_string)
         except(socket.error, RuntimeError, Exception) as e:
+            store_cache_response_string(request_string, Response(e.message), host, port, host_index)
             raise ValueError(e)
 
         data = ''

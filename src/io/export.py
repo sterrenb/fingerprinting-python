@@ -5,6 +5,7 @@
 # of the License at https://opensource.org/licenses/MIT#
 
 import csv
+import re
 from operator import itemgetter
 
 from src.static.constants import CSV, CSV_VERBOSE
@@ -41,14 +42,23 @@ class Exporter:
             banner = Exporter.__extract_banner_from_requests(requests)
             banner_split = banner.split('/')
 
-            if len(banner_split) > 0:
-                banner_name = banner_split[0].split()[0] if len(banner_split[0]) > 0 else ''
+            if len(banner_split) > 0 and banner_split[0] != '':
+                banner_name = banner_split[0].split()[0] if len(banner_split[0]) > 0 else 'NONE'
                 item_name_banner = Item(banner_name, 'NAME')
-                items['BANNER'].setdefault(host, []).append(item_name_banner)
+                # items['BANNER'].setdefault(host, []).append(item_name_banner)
 
                 if len(banner_split) > 1:
-                    item_version_banner = Item(banner_split[1].split()[0] if len(banner_split[1]) > 0 else '', 'VERSION')
-                    items['BANNER'].setdefault(host, []).append(item_version_banner)
+                    # version with name
+                    item_version_banner = Item(banner.split()[0], 'VERSION')
+                    # version only
+                    # item_version_banner = Item(banner_split[1].split()[0] if len(banner_split[1]) > 0 else '', 'VERSION')
+                else:
+                    item_version_banner = Item('NONE', 'VERSION')
+            else:
+                item_name_banner = Item('NONE', 'NAME')
+                item_version_banner = Item('NONE', 'VERSION')
+
+            items['BANNER'].setdefault(host, []).extend([item_name_banner, item_version_banner])
 
             for request, response in requests.iteritems():
                 # TODO split to defs
@@ -59,6 +69,14 @@ class Exporter:
 
                 item_response_text = Item(response.response_text, 'RESPONSE_TEXT')
                 response_items.append(item_response_text)
+
+                # if response.response_code == '404':
+                #     server_name_404 = self.get_server_name_404(response)
+                #     if len(server_name_404) > 0:
+                #         item_response_404 = Item(server_name_404, 'RESPONSE_404')
+                #     else:
+                #         item_response_404 = Item('NONE', 'RESPONSE_404')
+                #     response_items.append(item_response_404)
 
                 # item_response_headers = Item(str(response.header_names()), 'HEADERS')
                 # response_items.append(item_response_headers)
@@ -111,6 +129,16 @@ class Exporter:
         return list(set(output_list))
 
     @staticmethod
+    def get_server_name_404(response):
+        server_name_404 = ''
+        for line in response.body:
+            match = re.search(r'nginx\/([\d.]+)', line)
+            if match is not None:
+                server_name_404 = match.group()
+                break
+        return server_name_404
+
+    @staticmethod
     def group_items_per_output(items_per_request):
         items_per_output = {}
         for request_string, hosts in items_per_request.iteritems():
@@ -142,6 +170,9 @@ class Exporter:
     @staticmethod
     def write_top_row_to_file(writer, hosts=[]):
         row_top = ['name', 'method', 'attribute', 'unique responses']
+
+        hosts = [host[:-3] if host.endswith(':80') else host for host in hosts]
+
         row_top.extend(hosts)
         writer.writerow(row_top)
 
