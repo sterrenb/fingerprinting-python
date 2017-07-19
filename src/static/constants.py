@@ -8,6 +8,7 @@ import datetime
 
 # file and directory names
 CACHE = 'data/cache'
+KNOWN = 'data/known'
 REQUESTS = 'data/requests'
 BLACKLIST = 'data/blacklist'
 # CSV = 'aaa_' + str(datetime.datetime.now()).replace(' ', '_')[:-7] + '.csv'
@@ -15,6 +16,9 @@ CSV = 'aaa.csv'
 
 # files to ignore in the requests directories
 REQUEST_BLACKLIST = ['.keep', '.DS_Store']
+
+# export csv with server names as columns, instead of hostnames
+SERVER_NAMES = False
 
 # failure handler times
 PAUSE_TIME_AFTER_TIMEOUT = 1

@@ -8,7 +8,7 @@ import csv
 import re
 from operator import itemgetter
 
-from src.static.constants import CSV, CSV_VERBOSE
+from src.static.constants import CSV, CSV_VERBOSE, SERVER_NAMES
 
 
 class Exporter:
@@ -58,7 +58,8 @@ class Exporter:
                 item_name_banner = Item('NONE', 'NAME')
                 item_version_banner = Item('NONE', 'VERSION')
 
-            items['BANNER'].setdefault(host, []).extend([item_name_banner, item_version_banner])
+            if not SERVER_NAMES:
+                items['BANNER'].setdefault(host, []).extend([item_name_banner, item_version_banner])
 
             for request, response in requests.iteritems():
                 # TODO split to defs
@@ -94,9 +95,14 @@ class Exporter:
         items_per_output = self.group_items_per_output(items_per_request)
 
         rows = self.make_rows(items_per_output)
-
         if CSV_VERBOSE:
-            hosts = items_per_request.iteritems().next()[1].keys()
+            if not SERVER_NAMES:
+                hosts = items_per_request.iteritems().next()[1].keys()
+            else:
+                hosts = []
+                for host, requests in self.csv_dict.iteritems():
+                    banner = self.__extract_banner_from_requests(requests)
+                    hosts.append(banner)
         else:
             hosts = []
         self.write_top_row_to_file(writer, hosts)
@@ -172,6 +178,7 @@ class Exporter:
         row_top = ['name', 'method', 'attribute', 'unique responses']
 
         hosts = [host[:-3] if host.endswith(':80') else host for host in hosts]
+        hosts = [host.split()[0] for host in hosts]
 
         row_top.extend(hosts)
         writer.writerow(row_top)

@@ -4,6 +4,7 @@
 # use this file except in compliance with the License. You may obtain a copy
 # of the License at https://opensource.org/licenses/MIT#
 import fnmatch
+import glob
 import hashlib
 import logging
 import os
@@ -12,7 +13,7 @@ import pprint
 import sys
 
 from src.static import variables
-from src.static.constants import CACHE, REQUESTS, REQUEST_BLACKLIST
+from src.static.constants import CACHE, REQUESTS, REQUEST_BLACKLIST, LOGNAME_START
 
 logger = logging.getLogger('root')
 
@@ -86,12 +87,21 @@ def get_cache_response_from_request_string(request_string, host, port, url_info,
         raise IOError('directory not found', directory)
 
 
-def store_fingerprint(args, fingerprint, url_info):
-    directory = args.output
-    filepath = os.path.join(directory, url_info.host + '.' + str(url_info.port))
+def store_fingerprint(directory, fingerprint, filename):
+    filepath = os.path.join(directory, filename)
 
     with open(filepath, 'w') as file_handler:
         pprint.PrettyPrinter(stream=file_handler).pprint(fingerprint)
+
+
+def get_fingerprints(directory):
+    fingerprints = []
+    for filepath in glob.glob(directory + '/*'):
+        logger.debug("loading fingerprint %s", filepath, extra=LOGNAME_START)
+        with open(filepath, 'r') as file_handler:
+            f_fingerprint = eval(file_handler.read())
+            fingerprints.append(f_fingerprint)
+    return fingerprints
 
 
 def store_requests(requests):
@@ -106,6 +116,13 @@ def store_requests(requests):
 
             logger.info("stored request to %s", filepath,
                         extra={'logname': 'None', 'host_index': 0, 'host_total': 0})
+
+
+def write_lines(filepath, lines):
+    with open(filepath, 'w') as file_handler:
+        for line in lines:
+            file_handler.write("%s\n" % line)
+
 
 
 def get_request_items():

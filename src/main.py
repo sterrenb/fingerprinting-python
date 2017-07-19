@@ -8,6 +8,8 @@ import glob
 import re
 import sys
 
+import time
+
 from src.io.storage import get_request_items, store_fingerprint, get_number_of_malformed_requests
 from static import variables
 from static.arguments import parse_arguments
@@ -15,7 +17,8 @@ from static.blacklist import Blacklist
 from static.logger import setup_logger, LOGNAME_START
 
 from src.exchange.http import Request, UrlInfo, submit_string
-from src.static.constants import NO_RESPONSE_CODE, DATA_NONE, LEXICAL, SEMANTIC, SYNTACTIC, DATA_LIST
+from src.static.constants import NO_RESPONSE_CODE, DATA_NONE, LEXICAL, SEMANTIC, SYNTACTIC, DATA_LIST, KNOWN, \
+    SERVER_NAMES
 
 logger = setup_logger()
 
@@ -415,7 +418,27 @@ def get_hosts(args):
 def process_host(args, host, host_index, known_fingerprints, blacklist):
     f = get_fingerprint(host, host_index, blacklist)
 
-    store_fingerprint(args, f, UrlInfo(host))
+    url_info = UrlInfo(host)
+
+    if SERVER_NAMES is True:
+        banner = f[LEXICAL]['SERVER_NAME_CLAIMED']
+        if isinstance(banner, basestring):
+            filename = banner.split()[0]
+        else:
+            filename = banner[0].split()[0]
+
+        filename = filename.replace('/', '_')
+
+        directory = KNOWN
+    else:
+        if url_info.port != 80:
+            filename = url_info.host + ':' + str(url_info.port)
+        else:
+            filename = url_info.host
+
+        directory = args.output
+
+    store_fingerprint(directory, f, filename)
 
     if args.gather is False:
         scores = get_fingerprint_scores(args, f, known_fingerprints)
@@ -455,7 +478,7 @@ if __name__ == '__main__':
 
         blacklist = Blacklist()
 
-        hosts = hosts[-200:]
+        # hosts = hosts[-500:]
         # hosts = [hosts[1]]
 
         variables.host_total = len(hosts)
@@ -464,7 +487,11 @@ if __name__ == '__main__':
 
         process_hosts(args, hosts, known_fingerprints, blacklist)
 
-        Request.exporter.generate_output_file()
+        print "NOW!!!"
+
+        time.sleep(50)
+
+        # Request.exporter.generate_output_file()
     except KeyboardInterrupt:
         Request.exporter.generate_output_file()
         sys.exit()
